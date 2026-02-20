@@ -1,0 +1,4 @@
+[submodule "core/CTorch"]
+	path = core/CTorch
+	url = https://github.com/ShengFlow/CTorch.git
+	branch = optimize-Tensor

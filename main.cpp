@@ -1,5 +1,5 @@
-#include "./core/simulator/PhysicsEngine/OIEngine.h"
-#include "./core/simulator/PhysicsEngine/RK4Solver.h"
+#include "core/simulator/PhysicsEngine/OIEngine.h"
+#include "core/simulator/PhysicsEngine/RK4Solver.h"
 #include <iostream>
 
 using namespace std;

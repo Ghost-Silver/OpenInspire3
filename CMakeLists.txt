@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.2)
+cmake_minimum_required(VERSION 3.20)
 project(OpenInspire3)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -22,6 +22,7 @@ target_include_directories(DroneSimulation PRIVATE
 
 # 原有可执行文件（保留）
 add_executable(OpenInspire3
+        main.cpp
         core/simulator/PhysicsEngine/OIEngine.cpp
         core/simulator/PhysicsEngine/RK4Solver.cpp)
 

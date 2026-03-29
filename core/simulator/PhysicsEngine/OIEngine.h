@@ -11,9 +11,9 @@
 #include "RK4Solver.h"
 
 struct Config {
-  double dt = 0.001;     ///> 仿真器频率 1kHz
-  double mass = 1.0;     ///> 质点质量 1kg
-  double gravity = 9.81; ///> 重力加速度 9.81
+    double dt = 0.001;     ///> 仿真器频率 1kHz
+    double mass = 1.0;     ///> 质点质量 1kg
+    double gravity = 9.81; ///> 重力加速度 9.81
 };
 
 // 创建张量的辅助函数
@@ -23,31 +23,31 @@ Tensor make_tensor(const std::vector<float> &vals);
 Tensor drone_dynamics(const Tensor &state, const Tensor &thrust, Config config);
 
 class Engine {
-private:
-  Config _config;
-  Tensor _state;
-  RK4Integrator _rk4;
+  private:
+    Config _config;
+    Tensor _state;
+    RK4Integrator _rk4;
 
-public:
-  Engine(Config config, const Tensor &state);
+  public:
+    Engine(Config config, const Tensor &state);
 
-  // 使用初始化列表的构造函数（推荐）
-  Engine(Config config);
+    // 使用初始化列表的构造函数（推荐）
+    Engine(Config config);
 
-  // 获取当前状态
-  Tensor getState() const;
+    // 获取当前状态
+    Tensor getState() const;
 
-  // 设置状态
-  void setState(const Tensor &state);
+    // 设置状态
+    void setState(const Tensor &state);
 
-  // 获取配置
-  Config getConfig() const;
+    // 获取配置
+    Config getConfig() const;
 
-  // 更新配置
-  void setConfig(Config config);
+    // 更新配置
+    void setConfig(Config config);
 
-  // 执行单个仿真步（使用RK4方法）
-  void step(const Tensor &thrust);
+    // 执行单个仿真步（使用RK4方法）
+    void step(const Tensor &thrust);
 };
 
 #endif // OIENGINE_H

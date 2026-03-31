@@ -2,6 +2,15 @@ cmake_minimum_required(VERSION 3.20)
 project(OpenInspire3)
 
 set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_BUILD_TYPE Debug)
+
+add_compile_options(
+    -Wall 
+    -Wextra
+    -g
+    -O0
+    -fsanitize=address -fno-omit-frame-pointer
+)
 # 添加CTorch子目录
 add_subdirectory(core/CTorch)
 

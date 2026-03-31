@@ -1,13 +1,13 @@
 
 /**
- * @file GridMap.h
+ * @file VoxelMap.h
  * @brief OpenInspire3 空间块地图建模
  * @author GhostFace
  * @date 2026/3/29
  */
 
-#ifndef GridMap_h
-#define GridMap_h
+#ifndef VOXELMAP_h
+#define VOXELMAP_h
 #include <vector>
 struct Cell {
     bool is_searched;
@@ -17,8 +17,8 @@ struct Cell {
     std::vector<int> visited_drone;
     std::vector<int> visited_time;
 };
-class GridMap {
+class VoxelMap {
   private:
-    std::vector<Cell> grids;
+    std::vector<Cell> voxels;
 };
-#endif // GridMap.h
+#endif // VoxelMap.h

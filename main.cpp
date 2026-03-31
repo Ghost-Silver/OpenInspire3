@@ -17,14 +17,14 @@ int main() {
     config.gravity = 9.81; // 重力加速度
 
     // 2. 创建引擎
-    Engine engine(config);
+    Engine engine(config, 1);
 
     // 3. 设置初始状态 [pn, pe, pd, vn, ve, vd]
     //    初始位置：原点 (0, 0, 0)
     //    初始速度：静止 (0, 0, 0)
     vector<float> initial_state = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     Tensor initial_state_tensor = make_vector_tensor(initial_state);
-    engine.setState(initial_state_tensor);
+    engine.setState(initial_state_tensor, 1);
 
     // 4. 定义推力输入（自由落体时推力为0）
     vector<float> thrust_input = {0.0f, 0.0f, 0.0f};
@@ -50,7 +50,7 @@ int main() {
 
         // 每100步打印一次状态（每0.1秒）
         if (i % 100 == 0) {
-            Tensor current_state = engine.getState();
+            Tensor current_state = engine.getState(0);
             vector<float> state_vals = get_vector_value(current_state);
             double time = i * config.dt;
 
@@ -63,7 +63,7 @@ int main() {
     }
 
     // 7. 打印最终状态
-    Tensor final_state = engine.getState();
+    Tensor final_state = engine.getState(0);
     vector<float> final_state_vals = get_vector_value(final_state);
     cout << "====================================" << endl;
     cout << "Final state after " << simulation_time << " s:" << endl;

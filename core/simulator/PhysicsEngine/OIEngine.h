@@ -25,20 +25,21 @@ Tensor drone_dynamics(const Tensor &state, const Tensor &thrust, Config config);
 class Engine {
   private:
     Config _config;
-    Tensor _state;
+    std::vector<Tensor> _state;
     RK4Integrator _rk4;
+    int _numl;
 
   public:
-    Engine(Config config, const Tensor &state);
+    Engine(Config config, const std::vector<Tensor> &state, const int &numl);
 
     // 使用初始化列表的构造函数（推荐）
-    Engine(Config config);
+    Engine(Config config, const int &numl);
 
     // 获取当前状态
-    Tensor getState() const;
+    Tensor getState(const int &rank) const;
 
     // 设置状态
-    void setState(const Tensor &state);
+    void setState(const Tensor &state, const int &rank);
 
     // 获取配置
     Config getConfig() const;

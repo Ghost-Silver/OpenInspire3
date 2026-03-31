@@ -1,193 +1,193 @@
 [
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/simulator/PhysicsEngine\" -g -std=gnu++23 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -o CMakeFiles/DroneSimulation.dir/main.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/main.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/simulator/PhysicsEngine\" -g -std=gnu++23 -Wall -Wextra -g -O0 -o CMakeFiles/DroneSimulation.dir/main.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/main.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/main.cpp",
   "output": "CMakeFiles/DroneSimulation.dir/main.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/simulator/PhysicsEngine\" -g -std=gnu++23 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -o CMakeFiles/DroneSimulation.dir/core/simulator/PhysicsEngine/RK4Solver.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/simulator/PhysicsEngine/RK4Solver.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/simulator/PhysicsEngine\" -g -std=gnu++23 -Wall -Wextra -g -O0 -o CMakeFiles/DroneSimulation.dir/core/simulator/PhysicsEngine/RK4Solver.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/simulator/PhysicsEngine/RK4Solver.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/simulator/PhysicsEngine/RK4Solver.cpp",
   "output": "CMakeFiles/DroneSimulation.dir/core/simulator/PhysicsEngine/RK4Solver.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/simulator/PhysicsEngine\" -g -std=gnu++23 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -o CMakeFiles/DroneSimulation.dir/core/simulator/PhysicsEngine/OIEngine.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/simulator/PhysicsEngine/OIEngine.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/simulator/PhysicsEngine\" -g -std=gnu++23 -Wall -Wextra -g -O0 -o CMakeFiles/DroneSimulation.dir/core/simulator/PhysicsEngine/OIEngine.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/simulator/PhysicsEngine/OIEngine.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/simulator/PhysicsEngine/OIEngine.cpp",
   "output": "CMakeFiles/DroneSimulation.dir/core/simulator/PhysicsEngine/OIEngine.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++23 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -o CMakeFiles/OpenInspire3.dir/main.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/main.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++23 -Wall -Wextra -g -O0 -o CMakeFiles/OpenInspire3.dir/main.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/main.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/main.cpp",
   "output": "CMakeFiles/OpenInspire3.dir/main.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++23 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -o CMakeFiles/OpenInspire3.dir/core/simulator/PhysicsEngine/OIEngine.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/simulator/PhysicsEngine/OIEngine.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++23 -Wall -Wextra -g -O0 -o CMakeFiles/OpenInspire3.dir/core/simulator/PhysicsEngine/OIEngine.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/simulator/PhysicsEngine/OIEngine.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/simulator/PhysicsEngine/OIEngine.cpp",
   "output": "CMakeFiles/OpenInspire3.dir/core/simulator/PhysicsEngine/OIEngine.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++23 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -o CMakeFiles/OpenInspire3.dir/core/simulator/PhysicsEngine/RK4Solver.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/simulator/PhysicsEngine/RK4Solver.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++23 -Wall -Wextra -g -O0 -o CMakeFiles/OpenInspire3.dir/core/simulator/PhysicsEngine/RK4Solver.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/simulator/PhysicsEngine/RK4Solver.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/simulator/PhysicsEngine/RK4Solver.cpp",
   "output": "CMakeFiles/OpenInspire3.dir/core/simulator/PhysicsEngine/RK4Solver.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/Tensor.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/Tensor.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/Tensor.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/Tensor.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/Tensor.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/Tensor.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/AutoDiff.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/AutoDiff.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/AutoDiff.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/AutoDiff.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/AutoDiff.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/AutoDiff.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/Storage.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/Storage.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/Storage.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/Storage.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/Storage.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/Storage.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/Ctools.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/Ctools.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/Ctools.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/Ctools.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/Ctools.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/Ctools.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Add_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Add_BASIC_kernel.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Add_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Add_BASIC_kernel.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Add_BASIC_kernel.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Add_BASIC_kernel.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Sub_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Sub_BASIC_kernel.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Sub_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Sub_BASIC_kernel.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Sub_BASIC_kernel.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Sub_BASIC_kernel.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Mul_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Mul_BASIC_kernel.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Mul_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Mul_BASIC_kernel.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Mul_BASIC_kernel.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Mul_BASIC_kernel.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Div_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Div_BASIC_kernel.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Div_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Div_BASIC_kernel.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Div_BASIC_kernel.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Div_BASIC_kernel.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Neg_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Neg_BASIC_kernel.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Neg_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Neg_BASIC_kernel.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Neg_BASIC_kernel.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Neg_BASIC_kernel.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/ReLU_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/ReLU_BASIC_kernel.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/ReLU_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/ReLU_BASIC_kernel.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/ReLU_BASIC_kernel.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/ReLU_BASIC_kernel.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Cos_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Cos_BASIC_kernel.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Cos_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Cos_BASIC_kernel.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Cos_BASIC_kernel.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Cos_BASIC_kernel.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Sin_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Sin_BASIC_kernel.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Sin_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Sin_BASIC_kernel.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Sin_BASIC_kernel.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Sin_BASIC_kernel.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Tanh_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Tanh_BASIC_kernel.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Tanh_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Tanh_BASIC_kernel.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Tanh_BASIC_kernel.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Tanh_BASIC_kernel.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Sigmoid_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Sigmoid_BASIC_kernel.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Sigmoid_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Sigmoid_BASIC_kernel.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Sigmoid_BASIC_kernel.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Sigmoid_BASIC_kernel.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Softmax_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Softmax_BASIC_kernel.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Softmax_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Softmax_BASIC_kernel.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Softmax_BASIC_kernel.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Softmax_BASIC_kernel.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/MatMul_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/MatMul_BASIC_kernel.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/MatMul_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/MatMul_BASIC_kernel.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/MatMul_BASIC_kernel.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/MatMul_BASIC_kernel.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Dot_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Dot_BASIC_kernel.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Dot_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Dot_BASIC_kernel.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/Dot_BASIC_kernel.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/Dot_BASIC_kernel.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/MSE_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/MSE_BASIC_kernel.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/MSE_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/MSE_BASIC_kernel.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/MSE_BASIC_kernel.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/MSE_BASIC_kernel.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/CrossEntropy_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/CrossEntropy_BASIC_kernel.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/CrossEntropy_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/CrossEntropy_BASIC_kernel.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/CrossEntropy_BASIC_kernel.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/CrossEntropy_BASIC_kernel.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/MAE_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/MAE_BASIC_kernel.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -Wpedantic -O3 -march=native -fopenmp -o CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/MAE_BASIC_kernel.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/MAE_BASIC_kernel.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/kernels/CPU-BASIC/MAE_BASIC_kernel.cpp",
   "output": "core/CTorch/CMakeFiles/CTorch.dir/src/kernels/CPU-BASIC/MAE_BASIC_kernel.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -o CMakeFiles/PerformanceTest.dir/src/tests/performance_test.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/tests/performance_test.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -o CMakeFiles/PerformanceTest.dir/src/tests/performance_test.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/tests/performance_test.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/tests/performance_test.cpp",
   "output": "core/CTorch/CMakeFiles/PerformanceTest.dir/src/tests/performance_test.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -o CMakeFiles/StdTest.dir/src/tests/test.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/tests/test.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -o CMakeFiles/StdTest.dir/src/tests/test.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/tests/test.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/tests/test.cpp",
   "output": "core/CTorch/CMakeFiles/StdTest.dir/src/tests/test.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -o CMakeFiles/ActivationLossTest.dir/src/tests/test_activation_loss.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/tests/test_activation_loss.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -o CMakeFiles/ActivationLossTest.dir/src/tests/test_activation_loss.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/tests/test_activation_loss.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/tests/test_activation_loss.cpp",
   "output": "core/CTorch/CMakeFiles/ActivationLossTest.dir/src/tests/test_activation_loss.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -o CMakeFiles/TensorGradTest.dir/src/tests/test_tensor_grad.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/tests/test_tensor_grad.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -o CMakeFiles/TensorGradTest.dir/src/tests/test_tensor_grad.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/tests/test_tensor_grad.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/src/tests/test_tensor_grad.cpp",
   "output": "core/CTorch/CMakeFiles/TensorGradTest.dir/src/tests/test_tensor_grad.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -o CMakeFiles/MnistTest.dir/mnist/mnist.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/mnist/mnist.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -o CMakeFiles/MnistTest.dir/mnist/mnist.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/mnist/mnist.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/mnist/mnist.cpp",
   "output": "core/CTorch/CMakeFiles/MnistTest.dir/mnist/mnist.cpp.o"
 },
 {
   "directory": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch",
-  "command": "/usr/bin/c++  -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -fsanitize=address -fno-omit-frame-pointer -o CMakeFiles/MnistTest.dir/mnist/mnist_loader.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/mnist/mnist_loader.cpp\"",
+  "command": "/usr/bin/c++ -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -I\"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/include\" -g -std=gnu++17 -Wall -Wextra -g -O0 -o CMakeFiles/MnistTest.dir/mnist/mnist_loader.cpp.o -c \"/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/mnist/mnist_loader.cpp\"",
   "file": "/home/luojin/LuoJin's Project/OpenInspire3/core/CTorch/mnist/mnist_loader.cpp",
   "output": "core/CTorch/CMakeFiles/MnistTest.dir/mnist/mnist_loader.cpp.o"
 }

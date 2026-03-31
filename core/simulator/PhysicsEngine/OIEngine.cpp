@@ -67,7 +67,7 @@ Tensor drone_dynamics(const Tensor &state, const Tensor &thrust,
 // Engine类实现
 
 Engine::Engine(Config config, const std::vector<Tensor> &state, const int &numl)
-    : _config(config), _rk4(config.dt), _numl(numl) {
+    : _config(config), _rk4(config.dt), _numl(numl), _state(numl) {
     for (int i = 0; i < _numl; i++) {
         _state[i] = state[i];
     }
@@ -75,10 +75,10 @@ Engine::Engine(Config config, const std::vector<Tensor> &state, const int &numl)
 
 // 使用初始化列表的构造函数
 Engine::Engine(Config config, const int &numl)
-    : _config(config), _rk4(config.dt) {
+    : _config(config), _rk4(config.dt), _state(numl) {
     // 初始化默认状态：位置和速度都为0
 
-    for (int i = 0; i < _numl; i++) {
+    for (int i = 0; i < numl; i++) {
         _state[i] = Tensor(ShapeTag{}, {6}, DType::kFloat, DeviceType::kCPU);
     }
 }

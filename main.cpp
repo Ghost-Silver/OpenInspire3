@@ -24,7 +24,7 @@ int main() {
     //    初始速度：静止 (0, 0, 0)
     vector<float> initial_state = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     Tensor initial_state_tensor = make_vector_tensor(initial_state);
-    engine.setState(initial_state_tensor, 1);
+    engine.setState(initial_state_tensor, 0);
 
     // 4. 定义推力输入（自由落体时推力为0）
     vector<float> thrust_input = {0.0f, 0.0f, 0.0f};

@@ -9,8 +9,11 @@ add_compile_options(
     -Wextra
     -g
     -O0
-    -fsanitize=address -fno-omit-frame-pointer
 )
+
+add_definitions(-D_GLIBCXX_DEBUG)
+add_definitions(-D_GLIBCXX_DEBUG_PEDANTIC)
+
 # 添加CTorch子目录
 add_subdirectory(core/CTorch)
 

@@ -50,28 +50,12 @@ int main() {
 
         // 每100步打印一次状态（每0.1秒）
         if (i % 100 == 0) {
-            Tensor current_state = engine.getState(0);
-            vector<float> state_vals = get_vector_value(current_state);
-            double time = i * config.dt;
-
-            cout << "Time: " << time << " s, "
-                 << "Position: [" << state_vals[0] << ", " << state_vals[1]
-                 << ", " << state_vals[2] << "], "
-                 << "Velocity: [" << state_vals[3] << ", " << state_vals[4]
-                 << ", " << state_vals[5] << "]" << endl;
+            engine.print(0);
         }
     }
 
     // 7. 打印最终状态
-    Tensor final_state = engine.getState(0);
-    vector<float> final_state_vals = get_vector_value(final_state);
-    cout << "====================================" << endl;
-    cout << "Final state after " << simulation_time << " s:" << endl;
-    cout << "Position: [pn, pe, pd] = [" << final_state_vals[0] << ", "
-         << final_state_vals[1] << ", " << final_state_vals[2] << "]" << endl;
-    cout << "Velocity: [vn, ve, vd] = [" << final_state_vals[3] << ", "
-         << final_state_vals[4] << ", " << final_state_vals[5] << "]" << endl;
-
+    engine.print(0);
     // 8. 计算理论值并比较
     double theoretical_pd =
         0.5 * config.gravity * simulation_time * simulation_time;

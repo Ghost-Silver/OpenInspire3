@@ -67,7 +67,7 @@ Tensor drone_dynamics(const Tensor &state, const Tensor &thrust,
 // Engine类实现
 
 Engine::Engine(Config config, const std::vector<Tensor> &state, const int &numl)
-    : _config(config), _rk4(config.dt), _numl(numl), _state(numl) {
+    : _config(config), _state(numl), _rk4(config.dt), _numl(numl) {
     for (int i = 0; i < _numl; i++) {
         _state[i] = state[i];
     }
@@ -75,7 +75,7 @@ Engine::Engine(Config config, const std::vector<Tensor> &state, const int &numl)
 
 // 使用初始化列表的构造函数
 Engine::Engine(Config config, const int &numl)
-    : _config(config), _rk4(config.dt), _state(numl) {
+    : _config(config), _state(numl), _rk4(config.dt), _numl(numl) {
     // 初始化默认状态：位置和速度都为0
 
     for (int i = 0; i < numl; i++) {
@@ -109,6 +109,19 @@ void Engine::step(const Tensor &thrust) {
 
     // 使用RK4方法更新状态
     for (int i = 0; i < _numl; i++) {
-        _state[i] = _rk4.step(ode_func, 0.0, _state[i]);
+        _state[i] = _rk4.step(ode_func, _timems, _state[i]);
     }
+    _timems += _config.dt;
+}
+
+double Engine::getTime() { return _timems; }
+
+void Engine::print(const int &rank) {
+
+    std::vector<float> state_vals = get_vector_value(_state[rank]);
+    std::cout << "Time " << getTime() << " s, ";
+    std::cout << "Position: [pn, pe, pd] = [" << state_vals[0] << ", "
+              << state_vals[1] << ", " << state_vals[2] << "]";
+    std::cout << ", Velocity: [vn, ve, vd] = [" << state_vals[3] << ", "
+              << state_vals[4] << ", " << state_vals[5] << "]" << std::endl;
 }

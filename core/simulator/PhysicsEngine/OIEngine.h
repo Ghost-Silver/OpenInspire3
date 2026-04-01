@@ -28,6 +28,7 @@ class Engine {
     std::vector<Tensor> _state;
     RK4Integrator _rk4;
     int _numl;
+    double _timems = 0.0;
 
   public:
     Engine(Config config, const std::vector<Tensor> &state, const int &numl);
@@ -49,6 +50,10 @@ class Engine {
 
     // 执行单个仿真步（使用RK4方法）
     void step(const Tensor &thrust);
+
+    double getTime();
+
+    void print(const int &rank);
 };
 
 #endif // OIENGINE_H

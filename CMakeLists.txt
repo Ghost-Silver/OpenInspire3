@@ -130,3 +130,41 @@ add_executable(GreedyBaselineUltraHardTest
 target_include_directories(GreedyBaselineUltraHardTest PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/core/rl ${CMAKE_CURRENT_SOURCE_DIR}/core/Map)
 target_link_libraries(GreedyBaselineUltraHardTest PRIVATE oi3_simulator)
+
+# AM-MAPPO 超难度训练测试：在 ultra-hard 场景上训练 PPO，并与贪心基线对比
+add_executable(AMMAPPOUltraHardTest
+        core/Map/VoxelMap.cpp core/rl/Environment.cpp core/rl/EnvManager.cpp
+        core/rl/Baseline.cpp core/rl/PPOAgent.cpp core/rl/AMMAPPOUltraHardTest.cpp)
+target_include_directories(AMMAPPOUltraHardTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/rl ${CMAKE_CURRENT_SOURCE_DIR}/core/Map)
+target_compile_options(AMMAPPOUltraHardTest PRIVATE -Wall -Wextra)
+target_link_libraries(AMMAPPOUltraHardTest PRIVATE oi3_simulator)
+
+# 环境高级测试（多机、障碍、目标发现）
+add_executable(EnvironmentTestAdvanced
+        core/Map/VoxelMap.cpp core/rl/Environment.cpp core/rl/EnvironmentTestAdvanced.cpp)
+target_include_directories(EnvironmentTestAdvanced PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/rl ${CMAKE_CURRENT_SOURCE_DIR}/core/Map)
+target_link_libraries(EnvironmentTestAdvanced PRIVATE oi3_simulator)
+
+# 集成测试（UAV 管理器 / VoxelMap / Environment 配合）
+add_executable(IntegrationTest
+        core/Map/VoxelMap.cpp core/rl/Environment.cpp core/rl/IntegrationTest.cpp)
+target_include_directories(IntegrationTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/rl ${CMAKE_CURRENT_SOURCE_DIR}/core/Map)
+target_link_libraries(IntegrationTest PRIVATE oi3_simulator)
+
+# 完整系统测试（各模块协同）
+add_executable(FullSystemTest
+        core/Map/VoxelMap.cpp core/rl/Environment.cpp core/rl/FullSystemTest.cpp)
+target_include_directories(FullSystemTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/rl ${CMAKE_CURRENT_SOURCE_DIR}/core/Map)
+target_link_libraries(FullSystemTest PRIVATE oi3_simulator)
+
+# PPO 智能体端到端测试（环境 + 智能体）
+add_executable(PPOAgentTest
+        core/Map/VoxelMap.cpp core/rl/Environment.cpp core/rl/EnvManager.cpp
+        core/rl/Baseline.cpp core/rl/PPOAgent.cpp core/rl/PPOAgentTest.cpp)
+target_include_directories(PPOAgentTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/rl ${CMAKE_CURRENT_SOURCE_DIR}/core/Map)
+target_link_libraries(PPOAgentTest PRIVATE oi3_simulator)

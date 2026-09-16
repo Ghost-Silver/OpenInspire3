@@ -1,204 +1,284 @@
 /**
  * @file PPOAgent.cpp
- * @brief PPO 智能体类实现
+ * @brief PPO 智能体实现
  * @author GhostFace
  * @date 2026/4/4
+ *
+ * @note 2026/9/16 迁移说明见 PPOAgent.h 顶部注释。本文件相对 4 月版本的
+ *       实质性改动集中在下述位置，均以 [迁移] 标注。
  */
 
 #include "PPOAgent.h"
-#include "AutoDiff.h"
+#include "AutoGrad.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
 #include <random>
 
-// 神经网络实现
-Network::Network(int obs_dim, int hidden_dim, int action_dim) 
-    : obs_dim(obs_dim), hidden_dim(hidden_dim), action_dim(action_dim) {
-    // 初始化权重和偏置
-    fc1_w = Tensor(ShapeTag(), {static_cast<size_t>(hidden_dim), static_cast<size_t>(obs_dim)});
-    fc1_w.rand();
-    fc1_w.requires_grad(true);
-    
-    fc1_b = Tensor(ShapeTag(), {static_cast<size_t>(hidden_dim)});
-    fc1_b.zero();
-    fc1_b.requires_grad(true);
-    
-    fc2_w = Tensor(ShapeTag(), {static_cast<size_t>(hidden_dim), static_cast<size_t>(hidden_dim)});
-    fc2_w.rand();
-    fc2_w.requires_grad(true);
-    
-    fc2_b = Tensor(ShapeTag(), {static_cast<size_t>(hidden_dim)});
-    fc2_b.zero();
-    fc2_b.requires_grad(true);
-    
-    policy_out_w = Tensor(ShapeTag(), {static_cast<size_t>(action_dim), static_cast<size_t>(hidden_dim)});
-    policy_out_w.rand();
-    policy_out_w.requires_grad(true);
-    
-    policy_out_b = Tensor(ShapeTag(), {static_cast<size_t>(action_dim)});
-    policy_out_b.zero();
-    policy_out_b.requires_grad(true);
-    
-    value_out_w = Tensor(ShapeTag(), {1, static_cast<size_t>(hidden_dim)});
-    value_out_w.rand();
-    value_out_w.requires_grad(true);
-    
-    value_out_b = Tensor(ShapeTag(), {1});
-    value_out_b.zero();
-    value_out_b.requires_grad(true);
+namespace {
+
+/**
+ * @brief He 风格权重初始化
+ *
+ * CTorch 的 `Tensor::rand()` 产生 U[0, 1) —— 均值为 0.5 而非零均值。
+ * 若直接拿它当权重，每层输出期望会被放大约 fan_in/4 倍：本网络两层隐层
+ * 的 fan_in 分别为 75 与 64，信号逐层放大约 18 倍与 16 倍，累计近三百倍，
+ * 输出头再放大一次就达到 1e4 量级，softmax 直接饱和（表现为 log_prob 恒为 0、
+ * 策略梯度消失），训练无法进行。
+ *
+ * 故先平移到零均值，再按 He 初始化缩放：令方差 = 2 / fan_in，
+ * 对应均匀分布的半宽 k/2 满足 (k/2)^2 / 3 = 2 / fan_in，即 k = sqrt(24 / fan_in)。
+ *
+ * @note 初始化发生在 requires_grad 置位之前，此处写入叶子张量数据是安全的。
+ */
+void initHeWeight(Tensor &w, std::size_t fan_in) {
+    w.rand(); // U[0, 1)
+    const float k = std::sqrt(24.0f / static_cast<float>(fan_in));
+    float *p = w.data<float>();
+    const std::size_t n = w.numel();
+    for (std::size_t i = 0; i < n; ++i) {
+        p[i] = (p[i] - 0.5f) * k; // → 零均值，方差 ≈ 2 / fan_in
+    }
 }
 
-// 前向传播
-std::tuple<Tensor, Tensor> Network::forward(const Tensor& obs) {
-    // 第一层
-    Tensor h1 = obs.matmul(fc1_w.t()) + fc1_b;
-    h1 = h1.relu();
-    
-    // 第二层
-    Tensor h2 = h1.matmul(fc2_w.t()) + fc2_b;
-    h2 = h2.relu();
-    
-    // 策略输出
-    Tensor policy = h2.matmul(policy_out_w.t()) + policy_out_b;
-    policy = policy.softmax(1);
-    
-    // 价值输出
-    Tensor value = h2.matmul(value_out_w.t()) + value_out_b;
-    
-    return std::make_tuple(policy, value);
+/**
+ * @brief 把观测向量转为 [1, n] 张量
+ * @note 这里写入的是**新建叶子张量**的数据，属于常量输入，不涉及梯度。
+ */
+Tensor makeObsTensor(const std::vector<float> &obs) {
+    Tensor t(ShapeTag{}, {1, obs.size()});
+    float *p = t.data<float>();
+    for (std::size_t i = 0; i < obs.size(); ++i) {
+        p[i] = obs[i];
+    }
+    return t;
 }
 
-// 获取策略分布
-Tensor Network::get_policy(const Tensor& obs) {
-    auto [policy, _] = forward(obs);
+/**
+ * @brief 构造 one-hot 行向量 [1, n]
+ *
+ * 用途：从策略分布中按索引取出所执行动作的概率，同时**保持计算图连接**。
+ * 旧版直接 `float p = policy_data[idx]` 再从 float 构造张量，该张量与 policy
+ * 没有任何梯度关联，导致策略梯度恒为零。改用 one-hot 与逐元素乘再求和，
+ * 全程走 Tensor 算子。
+ */
+Tensor makeOneHot(int index, int n) {
+    Tensor t(ShapeTag{}, {1, static_cast<std::size_t>(n)});
+    if (index >= 0 && index < n) {
+        t.data<float>()[index] = 1.0f;
+    }
+    return t;
+}
+
+} // namespace
+
+// ============================== Network ==============================
+
+Network::Network(int obs_dim, int hidden_dim, int action_dim)
+    : _obs_dim(obs_dim), _hidden_dim(hidden_dim), _action_dim(action_dim) {
+    const auto h = static_cast<std::size_t>(hidden_dim);
+    const auto o = static_cast<std::size_t>(obs_dim);
+    const auto a = static_cast<std::size_t>(action_dim);
+
+    // 权重一律按 [fan_in, fan_out] 布局存放，前向直接 matmul，无需转置。
+    //
+    // 为什么不按教科书那样存 [fan_out, fan_in] 再左乘 W^T：
+    // CTorch 的 Tensor::transpose() / t() 不参与 autograd ——
+    // AutoGrad/Nodes 下没有 TransposeNode，且 transpose 内部是
+    // `Tensor result(*this)`（拷贝构造，节点被替换为 GradAccumulator），
+    // 因此梯度无法穿过转置。改布局即可绕开，还省掉一次转置拷贝。
+    _params.resize(PARAM_COUNT);
+    _params[FC1_W] = Tensor(ShapeTag{}, {o, h});    // [obs, hidden]
+    _params[FC1_B] = Tensor(ShapeTag{}, {h});
+    _params[FC2_W] = Tensor(ShapeTag{}, {h, h});    // [hidden, hidden]
+    _params[FC2_B] = Tensor(ShapeTag{}, {h});
+    _params[POLICY_W] = Tensor(ShapeTag{}, {h, a}); // [hidden, action]
+    _params[POLICY_B] = Tensor(ShapeTag{}, {a});
+    _params[VALUE_W] = Tensor(ShapeTag{}, {h, 1});  // [hidden, 1]
+    _params[VALUE_B] = Tensor(ShapeTag{}, {1});
+
+    reset_parameters();
+
+    // 参数需要梯度：只有 requires_grad=true 的叶子张量才会在算子分派时
+    // 注册计算图节点（见 AutoGrad::dispatch 中的 requires_grad 判定）。
+    for (auto &p : _params) {
+        p.requires_grad(true);
+    }
+}
+
+void Network::reset_parameters() {
+    const auto h = static_cast<std::size_t>(_hidden_dim);
+    const auto o = static_cast<std::size_t>(_obs_dim);
+    const auto a = static_cast<std::size_t>(_action_dim);
+
+    // 权重按各自 fan_in 做 He 初始化，偏置置零
+    initHeWeight(_params[FC1_W], o);
+    initHeWeight(_params[FC2_W], h);
+    initHeWeight(_params[POLICY_W], h);
+    initHeWeight(_params[VALUE_W], h);
+
+    _params[FC1_B].zero();
+    _params[FC2_B].zero();
+    _params[POLICY_B].zero();
+    _params[VALUE_B].zero();
+
+    (void)a;
+}
+
+std::tuple<Tensor, Tensor> Network::forward(const Tensor &obs) {
+    // 局部引用只是为了让下面的表达式保持可读
+    const Tensor &fc1_w = _params[FC1_W];
+    const Tensor &fc1_b = _params[FC1_B];
+    const Tensor &fc2_w = _params[FC2_W];
+    const Tensor &fc2_b = _params[FC2_B];
+    const Tensor &policy_w = _params[POLICY_W];
+    const Tensor &policy_b = _params[POLICY_B];
+    const Tensor &value_w = _params[VALUE_W];
+    const Tensor &value_b = _params[VALUE_B];
+
+    Tensor h1 = (obs.matmul(fc1_w) + fc1_b).relu();
+    Tensor h2 = (h1.matmul(fc2_w) + fc2_b).relu();
+
+    Tensor policy = (h2.matmul(policy_w) + policy_b).softmax(1);
+    // value 归约为标量：价值头输出 [1,1]，而 PPO 的回报/优势都是标量（0 维）。
+    // 调度器的逐元素算子要求形状严格一致、不做隐式广播，[1,1] 与 {} 直接相减会
+    // 报 "Tensor形状不一致"。归约后形状统一为标量，语义不变（[1,1] 的 sum 即其自身）。
+    Tensor value = (h2.matmul(value_w) + value_b).sum();
+
+    // 必须用 std::move 构造返回的 tuple。此处 policy / value 是具名局部变量（左值），
+    // 直接 `return {policy, value}` 会触发 Tensor 的**拷贝构造**，而拷贝构造会把副本的
+    // autograd 节点替换成新建的 GradAccumulator（见 Tensor(const Tensor&) 中的
+    // createGradAccumulator），副本与上游就此断开 —— 表现就是前向一切正常、
+    // 但 backward 时所有参数的梯度恒为零。移动构造保留节点，只 rebind 弱引用。
+    return {std::move(policy), std::move(value)};
+}
+
+Tensor Network::get_policy(const Tensor &obs) {
+    auto [policy, value] = forward(obs);
+    (void)value;
     return policy;
 }
 
-// 获取价值
-Tensor Network::get_value(const Tensor& obs) {
-    auto [_, value] = forward(obs);
+Tensor Network::get_value(const Tensor &obs) {
+    auto [policy, value] = forward(obs);
+    (void)policy;
     return value;
 }
 
-// 获取所有参数
-std::vector<Tensor> Network::get_parameters() {
-    return {
-        fc1_w, fc1_b, fc2_w, fc2_b,
-        policy_out_w, policy_out_b, value_out_w, value_out_b
-    };
-}
+// ============================== Optimizer ==============================
 
-// 重置参数
-void Network::reset_parameters() {
-    fc1_w.rand();
-    fc1_b.zero();
-    fc2_w.rand();
-    fc2_b.zero();
-    policy_out_w.rand();
-    policy_out_b.zero();
-    value_out_w.rand();
-    value_out_b.zero();
-}
+Optimizer::Optimizer(std::vector<Tensor> &params, float lr, float mom, float wd)
+    : _params(params), _lr(lr), _momentum(mom), _weight_decay(wd) {}
 
-// 优化器实现
-Optimizer::Optimizer(std::vector<Tensor> params, float lr, float mom, float wd) 
-    : parameters(params), learning_rate(lr), momentum(mom), weight_decay(wd) {}
-
-// 零梯度
 void Optimizer::zero_grad() {
-    // CTorch 会自动处理梯度的清零
+    for (auto &p : _params) {
+        p.zero_grad();
+    }
 }
 
-// 梯度下降
 void Optimizer::step() {
-    for (auto& param : parameters) {
-        if (param.requires_grad()) {
-            // 简单的梯度下降更新 - 使用全局 grad 函数
-            Tensor grad_tensor = grad(param);
-            if (!grad_tensor.is_cleared()) {
-                param = param - learning_rate * grad_tensor;
-            }
+    // 采用**原地写入**更新参数，与 CTorch 自身的 MNIST 训练保持一致
+    // （见 core/CTorch/mnist/mnist.cpp 的 sgd_step）。
+    //
+    // 不能用 `p = p - lr * g`：Tensor 的移动赋值会把 `p - lr*g` 这个**计算图节点**
+    // 搬进参数槽位，参数于是不再是有 GradAccumulator 的叶子张量，而是一个指向
+    // 旧参数节点的中间节点。下一轮 forward 时梯度会沿这条历史链继续上溯，
+    // 图结构逐轮膨胀，多轮 epoch 后触发反向传播的形状断言而崩溃。
+    //
+    // 原地写入保持参数张量对象本身不变（node 仍为 GradAccumulator），
+    // 数值更新效果等价。
+    for (auto &p : _params) {
+        float *gp = p.grad_ptr();
+        if (gp == nullptr) {
+            continue;
+        }
+        float *pp = p.data_write<float>();
+        const std::size_t n = p.numel();
+        for (std::size_t i = 0; i < n; ++i) {
+            pp[i] -= gp[i] * _lr;
         }
     }
 }
 
-// PPO 智能体实现
-PPOAgent::PPOAgent(int obs_dim, int hidden_dim, int action_dim, float lr) 
-    : network(obs_dim, hidden_dim, action_dim),
-      optimizer(network.get_parameters(), lr),
-      gamma(0.99),
-      gae_lambda(0.95),
-      clip_epsilon(0.2),
-      batch_size(64),
-      update_epochs(2) {}  // 减少更新轮次从4到2，加速训练
+// ============================== PPOAgent ==============================
 
-// 选择动作
-std::tuple<int, float, float> PPOAgent::select_action(const std::vector<float>& obs) {
-    // 将观测转换为张量
-    Tensor obs_tensor(ShapeTag(), {1, static_cast<size_t>(obs.size())});
-    float* data = obs_tensor.data<float>();
-    for (size_t i = 0; i < obs.size(); i++) {
-        data[i] = obs[i];
-    }
-    
-    // 获取策略和价值
-    auto [policy, value] = network.forward(obs_tensor);
-    
-    // 从策略分布中采样动作
-    float* policy_data = policy.data<float>();
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::discrete_distribution<> dist(policy_data, policy_data + policy.size(1));
-    int action = dist(gen);
-    
-    // 计算动作的对数概率
-    float log_prob = std::log(policy_data[action]);
-    
-    // 获取价值
-    float value_val = value.data<float>()[0];
-    
-    return std::make_tuple(action, log_prob, value_val);
+PPOAgent::PPOAgent(int obs_dim, int hidden_dim, int action_dim, float lr)
+    : _network(obs_dim, hidden_dim, action_dim),
+      _optimizer(_network.get_parameters(), lr), _gamma(0.99f),
+      _gae_lambda(0.95f), _clip_epsilon(0.2f), _batch_size(64),
+      _update_epochs(2) {}
+
+std::tuple<int, float, float> PPOAgent::select_action(const std::vector<float> &obs) {
+    Tensor obs_tensor = makeObsTensor(obs);
+
+    // [迁移] 采样是推理行为，不需要计算图。暂时关闭梯度记录：
+    // 既省掉无用的图构建开销，也使随后按指针读取 policy 数据是安全的
+    // （此时 policy 不含 grad_fn，不会有节点引用悬挂的顾虑）。
+    const bool saved_enable_grad = AutoGrad::EnableGrad;
+    AutoGrad::EnableGrad = false;
+    auto [policy, value] = _network.forward(obs_tensor);
+    AutoGrad::EnableGrad = saved_enable_grad;
+
+    const int action_dim = _network.actionDim();
+    const float *policy_data = policy.data<float>();
+
+    std::mt19937 gen(std::random_device{}());
+    std::discrete_distribution<> dist(policy_data, policy_data + action_dim);
+    const int action = dist(gen);
+
+    const float prob = policy_data[action];
+    const float log_prob = std::log(std::max(prob, 1e-12f));
+    const float value_val = value.data<float>()[0];
+
+    return {action, log_prob, value_val};
 }
 
-// 存储经验
-void PPOAgent::store_experience(const Experience& exp) {
-    buffer.push_back(exp);
+void PPOAgent::store_experience(const Experience &exp) {
+    _buffer.push_back(exp);
 }
 
-// 计算 GAE
-std::vector<Tensor> PPOAgent::compute_gae(const std::vector<Tensor>& rewards, const std::vector<Tensor>& values, const std::vector<Tensor>& dones) {
+std::vector<Tensor> PPOAgent::compute_gae(const std::vector<Tensor> &rewards,
+                                          const std::vector<Tensor> &values,
+                                          const std::vector<Tensor> &dones) {
+    // GAE 只用于构造优势估计的数值，不参与梯度，按标量递推即可
     std::vector<Tensor> advantages(rewards.size());
-    Tensor advantage = Tensor(0.0f);
-    
-    for (int i = rewards.size() - 1; i >= 0; i--) {
-        // 确保所有张量都是标量
-        float reward_val = rewards[i].data<float>()[0];
-        float value_val = values[i].data<float>()[0];
-        float next_value_val = values[i + 1].data<float>()[0];
-        float done_val = dones[i].data<float>()[0];
-        
-        float delta = reward_val + gamma * next_value_val * (1 - done_val) - value_val;
-        advantage = Tensor(delta) + gamma * gae_lambda * (1 - done_val) * advantage;
-        advantages[i] = advantage;
+    Tensor advantage(0.0f);
+
+    for (std::ptrdiff_t i = static_cast<std::ptrdiff_t>(rewards.size()) - 1; i >= 0;
+         --i) {
+        const float reward_val = rewards[static_cast<std::size_t>(i)].data<float>()[0];
+        const float value_val = values[static_cast<std::size_t>(i)].data<float>()[0];
+        const float next_value_val =
+            values[static_cast<std::size_t>(i) + 1].data<float>()[0];
+        const float done_val = dones[static_cast<std::size_t>(i)].data<float>()[0];
+
+        const float delta =
+            reward_val + _gamma * next_value_val * (1.0f - done_val) - value_val;
+        advantage = Tensor(delta) + advantage * (_gamma * _gae_lambda * (1.0f - done_val));
+        advantages[static_cast<std::size_t>(i)] = advantage;
     }
-    
+
     return advantages;
 }
 
-// 更新策略
 void PPOAgent::update() {
-    if (buffer.empty()) {
+    if (_buffer.empty()) {
         return;
     }
-    
-    // 提取经验（一次性提取，减少内存操作）
-    std::vector<Tensor> obs_list, action_list, log_prob_list, value_list, reward_list, done_list;
-    obs_list.reserve(buffer.size());
-    action_list.reserve(buffer.size());
-    log_prob_list.reserve(buffer.size());
-    value_list.reserve(buffer.size());
-    reward_list.reserve(buffer.size());
-    done_list.reserve(buffer.size());
-    
-    for (const auto& exp : buffer) {
+
+    // 取出缓冲区（避免在更新循环中反复访问 vector 元素）
+    std::vector<Tensor> obs_list, action_list, log_prob_list, value_list, reward_list,
+        done_list;
+    const std::size_t n = _buffer.size();
+    obs_list.reserve(n);
+    action_list.reserve(n);
+    log_prob_list.reserve(n);
+    value_list.reserve(n);
+    reward_list.reserve(n);
+    done_list.reserve(n);
+
+    for (const auto &exp : _buffer) {
         obs_list.push_back(exp.obs);
         action_list.push_back(exp.action);
         log_prob_list.push_back(exp.log_prob);
@@ -206,124 +286,80 @@ void PPOAgent::update() {
         reward_list.push_back(exp.reward);
         done_list.push_back(exp.done);
     }
-    
-    // 计算 GAE
-    value_list.push_back(Tensor(0.0f)); // 最后一个状态的价值为 0
+
+    // 最后一个状态的价值为 0，供 GAE 的 bootstrap 项使用
+    value_list.push_back(Tensor(0.0f));
     std::vector<Tensor> advantages = compute_gae(reward_list, value_list, done_list);
-    
-    // 计算回报
+
+    // 回报 = 优势 + 状态价值
     std::vector<Tensor> returns(advantages.size());
-    for (size_t i = 0; i < advantages.size(); i++) {
+    for (std::size_t i = 0; i < advantages.size(); ++i) {
         returns[i] = advantages[i] + value_list[i];
     }
-    
-    // 执行多个更新轮次
-    for (int epoch = 0; epoch < update_epochs; epoch++) {
-        // 创建自动微分上下文（每个更新轮次创建一次）
-        AutoDiff auto_diff;
-        AutoDiffContext::Guard guard(&auto_diff);
-        
-        // 零梯度
-        optimizer.zero_grad();
-        
-        // 计算损失
+
+    const int action_dim = _network.actionDim();
+
+    for (int epoch = 0; epoch < _update_epochs; ++epoch) {
+        // [迁移] 原先这里构造 AutoDiff 上下文以开启梯度记录；
+        // 当前 CTorch 的 AutoGrad::EnableGrad 默认即为 true，无需显式开关。
+        _optimizer.zero_grad();
+
         Tensor policy_loss(0.0f);
         Tensor value_loss(0.0f);
-        
-        for (size_t i = 0; i < buffer.size(); i++) {
-            // 获取当前经验
-            Tensor obs = obs_list[i];
-            Tensor action = action_list[i];
-            Tensor old_log_prob = log_prob_list[i];
-            Tensor old_value = value_list[i];
-            Tensor advantage = advantages[i];
-            Tensor return_ = returns[i];
-            
-            // 快速跳过无效张量
-            if (obs.is_cleared() || !obs.check_storage_offset()) {
-                continue;
-            }
-            
-            // 前向传播
-            auto [policy, value] = network.forward(obs);
-            
-            // 快速跳过无效张量
-            if (policy.is_cleared() || !policy.check_storage_offset()) {
-                continue;
-            }
-            
-            // 计算新的对数概率
-            int action_idx = static_cast<int>(action.data<float>()[0]);
-            float action_prob = 0.0f;
-            
-            // 直接访问数据，减少异常处理开销
-            float* policy_data = policy.data<float>();
-            size_t policy_size = policy.size(1);
-            if (action_idx >= 0 && static_cast<size_t>(action_idx) < policy_size) {
-                action_prob = policy_data[action_idx];
-            } else {
-                action_prob = 0.0001f; // 防止除零错误
-            }
-            
-            if (action_prob <= 0) {
-                action_prob = 0.0001f; // 防止除零错误
-            }
-            
-            Tensor new_log_prob(std::log(action_prob));
-            
-            // 计算概率比率
-            Tensor ratio = (new_log_prob - old_log_prob).exp();
-            
-            // 计算 PPO 损失
-            // 手动实现 clamp
-            Tensor clipped_ratio = ratio;
-            float* ratio_data = clipped_ratio.data<float>();
-            float min_val = 1 - clip_epsilon;
-            float max_val = 1 + clip_epsilon;
-            size_t numel = clipped_ratio.numel();
-            for (size_t j = 0; j < numel; j++) {
-                if (ratio_data[j] < min_val) ratio_data[j] = min_val;
-                else if (ratio_data[j] > max_val) ratio_data[j] = max_val;
-            }
-            
-            Tensor surr1 = ratio * advantage;
-            Tensor surr2 = clipped_ratio * advantage;
-            
-            // 手动实现 min
-            Tensor min_surr = surr1;
-            float* surr1_data = surr1.data<float>();
-            float* surr2_data = surr2.data<float>();
-            float* min_data = min_surr.data<float>();
-            for (size_t j = 0; j < numel; j++) {
-                min_data[j] = std::min(surr1_data[j], surr2_data[j]);
-            }
-            
+
+        for (std::size_t i = 0; i < n; ++i) {
+            const Tensor &obs = obs_list[i];
+            const Tensor &action = action_list[i];
+            const Tensor &old_log_prob = log_prob_list[i];
+            const Tensor &advantage = advantages[i];
+            const Tensor &target_return = returns[i];
+
+            auto [policy, value] = _network.forward(obs);
+
+            // [迁移] 关键修复：按索引取出所执行动作的对数概率，且保持计算图连接。
+            //
+            // 旧版做法是
+            //     float p = policy_data[action_idx];
+            //     Tensor new_log_prob(std::log(p));
+            // —— new_log_prob 由 float 构造，是独立叶子张量，与 policy 之间
+            // 没有任何梯度路径，于是策略梯度恒为零。改为 one-hot 掩码：
+            //     (log_policy * one_hot).sum()  →  标量，且梯度能回传到 policy。
+            const int action_idx = static_cast<int>(action.data<float>()[0]);
+            const Tensor one_hot = makeOneHot(action_idx, action_dim);
+            const Tensor log_policy = policy.clamp(1e-12f, 1.0f).log();
+            const Tensor new_log_prob = (log_policy * one_hot).sum();
+
+            // 概率比率 r = exp(log π_new − log π_old)
+            const Tensor ratio = (new_log_prob - old_log_prob).exp();
+
+            // [迁移] clamp 改用算子：一行替代原先的 11 行指针循环，
+            // 且 clamp 会注册节点，梯度可正常回传。
+            const Tensor clipped_ratio =
+                ratio.clamp(1.0f - _clip_epsilon, 1.0f + _clip_epsilon);
+
+            const Tensor surr1 = ratio * advantage;
+            const Tensor surr2 = clipped_ratio * advantage;
+
+            // [迁移] 逐元素 min 改用算子（原为拷贝 + 指针循环，两条路径都断图）
+            const Tensor min_surr = surr1.min(surr2);
+
             policy_loss = policy_loss + (-min_surr).mean();
-            
-            // 计算价值损失
-            value_loss = value_loss + (return_ - value).square().mean();
+            // 价值损失：0.5 * (R - V)^2，系数在外层统一乘
+            value_loss = value_loss + (target_return - value).square().mean();
         }
-        
-        // 总损失
-        Tensor total_loss = policy_loss + 0.5 * value_loss;
-        
-        // 反向传播
-        total_loss.backward();
-        
-        // 梯度下降
-        optimizer.step();
+
+        const Tensor total_loss = policy_loss + value_loss * 0.5f;
+
+        // [迁移] total_loss.backward() → AutoGrad::backward(node, retain_graph)。
+        // 每一轮 epoch 都会重新前向，图不跨轮复用，故 retain_graph = false。
+        AutoGrad::backward(total_loss.getRelatedNode(), false);
+
+        _optimizer.step();
     }
-    
-    // 清空缓冲区
+
     clear_buffer();
 }
 
-// 清空缓冲区
 void PPOAgent::clear_buffer() {
-    buffer.clear();
-}
-
-// 获取网络
-Network& PPOAgent::get_network() {
-    return network;
+    _buffer.clear();
 }

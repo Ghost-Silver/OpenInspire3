@@ -1,115 +1,153 @@
 /**
  * @file PPOAgent.h
- * @brief PPO 智能体类，封装网络、优化器、经验缓冲、GAE 和更新逻辑
+ * @brief PPO 智能体：网络、优化器、经验缓冲、GAE 与更新逻辑
  * @author GhostFace
  * @date 2026/4/4
+ *
+ * @note 2026/9/16 迁移至当前 CTorch 接口，三处结构性修正：
+ *
+ *  1. **autograd 接口**：移除对 `AutoDiff` / `AutoDiffContext::Guard` /
+ *     `Tensor::backward()` 的依赖（这些在当前 CTorch 中并不存在），改用
+ *     `AutoGrad::backward(tensor.getRelatedNode(), retain_graph)`。
+ *
+ *  2. **参数所有权**：旧版 `get_parameters()` 返回按值拷贝的 vector，
+ *     Optimizer 于是持有一份副本，`step()` 的更新只作用于副本、从不写回
+ *     网络——训练实际是无效的。现改为参数集中存放、Optimizer 持引用。
+ *
+ *  3. **保图运算**：动作概率的选取、ratio 的 clamp、surrogate 的逐元素 min
+ *     原先都用 `data<float>()` 手写循环实现，既不注册 grad_fn，又会被
+ *     `Tensor clamped = ratio;` 这类拷贝切断上游。现全部改为 Tensor 算子。
  */
 
 #ifndef PPOAGENT_H
 #define PPOAGENT_H
 
 #include "ActionSpace.h"
-#include "../CTorch/include/Tensor.h"
-#include <vector>
+#include "Tensor.h"
+#include <cstddef>
 #include <tuple>
+#include <vector>
 
-// 经验样本结构体
+/// 经验样本
 struct Experience {
-    Tensor obs;           // 观测
-    Tensor action;        // 动作
-    Tensor log_prob;      // 动作对数概率
-    Tensor value;         // 状态价值
-    Tensor reward;        // 奖励
-    Tensor done;          // 终止标志
+    Tensor obs;      ///< 观测
+    Tensor action;   ///< 动作索引
+    Tensor log_prob; ///< 旧策略下的动作对数概率
+    Tensor value;    ///< 状态价值
+    Tensor reward;   ///< 奖励
+    Tensor done;     ///< 终止标志
 };
 
-// 神经网络结构
+/**
+ * @class Network
+ * @brief 策略/价值网络：两层 MLP 主干 + 策略头 + 价值头
+ *
+ * 参数集中存放在 `_params` 中，按 ParamIndex 索引。
+ *
+ * 之所以不把每个权重做成独立成员：Optimizer 需要拿到参数的**引用**才能把
+ * 更新写回网络。若沿用旧版的按值返回，optimizer 持有的是副本，
+ * `param = param - lr * grad` 只会改副本，网络权重永远不变。
+ */
 class Network {
-private:
-    // 策略网络参数
-    Tensor fc1_w;         // 第一层权重
-    Tensor fc1_b;         // 第一层偏置
-    Tensor fc2_w;         // 第二层权重
-    Tensor fc2_b;         // 第二层偏置
-    Tensor policy_out_w;  // 策略输出层权重
-    Tensor policy_out_b;  // 策略输出层偏置
-    Tensor value_out_w;   // 价值输出层权重
-    Tensor value_out_b;   // 价值输出层偏置
+  public:
+    /// 参数在 _params 中的固定下标
+    enum ParamIndex : std::size_t {
+        FC1_W = 0,
+        FC1_B,
+        FC2_W,
+        FC2_B,
+        POLICY_W,
+        POLICY_B,
+        VALUE_W,
+        VALUE_B,
+        PARAM_COUNT
+    };
 
-    // 网络配置
-    int obs_dim;          // 观测维度
-    int hidden_dim;       // 隐藏层维度
-    int action_dim;       // 动作维度
-
-public:
     Network(int obs_dim, int hidden_dim, int action_dim);
 
-    // 前向传播
-    std::tuple<Tensor, Tensor> forward(const Tensor& obs);
+    /// 前向传播，返回 (策略分布 [1, action_dim], 状态价值 [1])
+    std::tuple<Tensor, Tensor> forward(const Tensor &obs);
 
-    // 获取策略分布
-    Tensor get_policy(const Tensor& obs);
+    Tensor get_policy(const Tensor &obs);
+    Tensor get_value(const Tensor &obs);
 
-    // 获取价值
-    Tensor get_value(const Tensor& obs);
+    /// 全部参数（引用：可就地更新）
+    std::vector<Tensor> &get_parameters() { return _params; }
+    const std::vector<Tensor> &get_parameters() const { return _params; }
 
-    // 获取所有参数
-    std::vector<Tensor> get_parameters();
+    Tensor &param(ParamIndex index) { return _params[index]; }
+    const Tensor &param(ParamIndex index) const { return _params[index]; }
 
-    // 重置参数
+    int obsDim() const { return _obs_dim; }
+    int hiddenDim() const { return _hidden_dim; }
+    int actionDim() const { return _action_dim; }
+
     void reset_parameters();
+
+  private:
+    std::vector<Tensor> _params;
+    int _obs_dim;
+    int _hidden_dim;
+    int _action_dim;
 };
 
-// 优化器
+/**
+ * @class Optimizer
+ * @brief 朴素 SGD（保留动量/权重衰减字段，当前 step 仅使用学习率）
+ *
+ * 持有 Network 参数 vector 的**引用**，因此 step() 的更新直接作用于网络。
+ */
 class Optimizer {
-private:
-    std::vector<Tensor> parameters;
-    float learning_rate;
-    float momentum;
-    float weight_decay;
+  public:
+    explicit Optimizer(std::vector<Tensor> &params, float lr = 3e-4f,
+                       float mom = 0.9f, float wd = 0.0001f);
 
-public:
-    Optimizer(std::vector<Tensor> params, float lr = 3e-4, float mom = 0.9, float wd = 0.0001);
-
-    // 零梯度
     void zero_grad();
-
-    // 梯度下降
     void step();
+
+  private:
+    std::vector<Tensor> &_params; ///< 引用而非拷贝
+    float _lr;
+    float _momentum;
+    float _weight_decay;
 };
 
-// PPO 智能体
+/**
+ * @class PPOAgent
+ * @brief PPO 智能体
+ */
 class PPOAgent {
-private:
-    Network network;
-    Optimizer optimizer;
-    std::vector<Experience> buffer;
-    float gamma;          // 折扣因子
-    float gae_lambda;     // GAE 参数
-    float clip_epsilon;   // PPO 裁剪参数
-    int batch_size;       // 批次大小
-    int update_epochs;    // 更新轮数
+  public:
+    PPOAgent(int obs_dim, int hidden_dim, int action_dim, float lr = 3e-4f);
 
-public:
-    PPOAgent(int obs_dim, int hidden_dim, int action_dim, float lr = 3e-4);
+    /// 采样动作，返回 (动作索引, 对数概率, 状态价值)
+    std::tuple<int, float, float> select_action(const std::vector<float> &obs);
 
-    // 选择动作
-    std::tuple<int, float, float> select_action(const std::vector<float>& obs);
+    void store_experience(const Experience &exp);
 
-    // 存储经验
-    void store_experience(const Experience& exp);
+    /// 广义优势估计（无梯度需求，按标量计算）
+    std::vector<Tensor> compute_gae(const std::vector<Tensor> &rewards,
+                                    const std::vector<Tensor> &values,
+                                    const std::vector<Tensor> &dones);
 
-    // 计算 GAE
-    std::vector<Tensor> compute_gae(const std::vector<Tensor>& rewards, const std::vector<Tensor>& values, const std::vector<Tensor>& dones);
-
-    // 更新策略
+    /// 执行 _update_epochs 轮策略更新
     void update();
 
-    // 清空缓冲区
     void clear_buffer();
 
-    // 获取网络
-    Network& get_network();
+    Network &get_network() { return _network; }
+
+    std::size_t bufferSize() const { return _buffer.size(); }
+
+  private:
+    Network _network;
+    Optimizer _optimizer;
+    std::vector<Experience> _buffer;
+    float _gamma;
+    float _gae_lambda;
+    float _clip_epsilon;
+    int _batch_size;
+    int _update_epochs;
 };
 
 #endif // PPOAGENT_H

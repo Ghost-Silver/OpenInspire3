@@ -63,33 +63,42 @@ add_test(NAME sim_regression COMMAND test_sim)
 # ===========================================================================
 # core/rl/ —— 强化学习栈（搜索环境 / EnvManager / PPO / AM-MAPPO / 贪心基线）
 #
-# 状态：源文件保留在仓库中，但**暂不纳入构建**。
+# 迁移进度（2026/9/16）：
+#   [x] PPOAgent —— autograd 接口已迁移、参数所有权已修正、数值运算已保图
+#   [ ] Environment / EnvManager —— 待接入新的仿真核心
+#   [ ] 贪心基线与 AM-MAPPO 测试 —— 待 Environment 就绪后恢复
 #
-# 阻塞原因（逐条均已核实）：
+# 原阻塞原因（PPOAgent 部分已解决，留档）：
 #   1. 使用当前 CTorch 中不存在的自动微分接口：
 #        AutoDiff / AutoDiffContext::Guard / Tensor::backward()
-#      当前接口为 AutoGrad::backward(tensor.getRelatedNode(), retain_graph)。
-#      见 core/rl/PPOAgent.cpp 的 update()。
-#   2. 多处用 `float* p = t.data<float>()` 手写 clamp / min 循环
-#      （PPOAgent.cpp 中 clipped_ratio 与 min_surr 两处），
-#      直接改写数据指针不建立 grad_fn，会切断计算图。
+#      已改为 AutoGrad::backward(tensor.getRelatedNode(), retain_graph)。
+#   2. 多处用 `float* p = t.data<float>()` 手写 clamp / min 循环，
+#      直接改写数据指针不注册 grad_fn，会切断计算图。
+#      已改为 ratio.clamp(...) 与 surr1.min(surr2)。
 #   3. 依赖 core/simulator/PhysicsEngine/OIEngine.{h,cpp} 与 RK4Solver.cpp
 #      —— 这三个文件已被 DroneTypes / DroneDynamics / DroneSimulator /
 #      TensorUtils 取代并删除。
 #   4. 旧 CMakeLists 引用的 core/Map/VoxelMapMultiDroneTest.cpp 在仓库中不存在。
-#
-# 迁移方向：
-#   a. 环境层（Environment / EnvManager）改接 DroneSimulator；
-#   b. PPO 的动作采样与损失全部改为纯算子表达（保图），
-#      clamp 用 Min/Max 算子、min 用逐元素 Min，不再手写指针循环；
-#   c. total_loss.backward() 改为 AutoGrad::backward(total_loss.getRelatedNode(), false)。
-#
-# 迁移完成后再逐条恢复下列 target。
 # ===========================================================================
-# add_executable(PPOAgentTest ...)
-# add_executable(AMMAPPOUltraHardTest ...)
-# add_executable(GreedyBaselineTest ...)  等，见 706470b 提交中的原始定义
+
+# PPO 智能体最小测试（不依赖环境层）
+add_executable(PPOAgentSimpleTest
+        core/rl/PPOAgent.cpp
+        core/rl/PPOAgentSimpleTest.cpp)
+target_include_directories(PPOAgentSimpleTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/core/rl)
+target_compile_options(PPOAgentSimpleTest PRIVATE -Wall -Wextra)
+target_link_libraries(PPOAgentSimpleTest PRIVATE oi3_simulator)
+
+# PPO 迁移回归：验证梯度确实回传到参数（判据不是"能编译"，而是"参数被更新"）
+add_executable(test_ppo_grad
+        core/rl/PPOAgent.cpp
+        tests/test_ppo_grad.cpp)
+target_include_directories(test_ppo_grad PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/core/rl)
+target_compile_options(test_ppo_grad PRIVATE -Wall -Wextra)
+target_link_libraries(test_ppo_grad PRIVATE oi3_simulator)
+add_test(NAME ppo_migration COMMAND test_ppo_grad)
 
 # 已移除 -D_GLIBCXX_DEBUG / -D_GLIBCXX_DEBUG_PEDANTIC：
 # macOS 使用 libc++，这两个宏是 GCC libstdc++ 专有，实测完全空操作（无调试收益）；
 # 在 Linux/GCC 上则会改变 STL 容器 ABI，与未编译该宏的 CTorch 混链时存在不兼容风险。
+

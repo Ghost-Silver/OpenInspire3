@@ -20,8 +20,8 @@ set(FETCH_GOOGLETEST OFF CACHE BOOL "" FORCE)
 add_subdirectory(core/CTorch)
 
 # ---------------------------------------------------------------------------
-# 仿真核心库：动力学 + 积分器 + 仿真器 + 体素地图
-# 抽成库是为了让演示程序与回归测试共用同一份编译产物，避免源文件重复编译。
+# 仿真核心库：动力学 + 积分步进 + 仿真器 + 体素地图
+# 抽成库是为了让演示程序与回归测试共用同一份编译产物。
 # ---------------------------------------------------------------------------
 add_library(oi3_simulator STATIC
         core/simulator/PhysicsEngine/DroneDynamics.cpp
@@ -60,6 +60,36 @@ target_link_libraries(test_sim PRIVATE oi3_simulator)
 enable_testing()
 add_test(NAME sim_regression COMMAND test_sim)
 
+# ===========================================================================
+# core/rl/ —— 强化学习栈（搜索环境 / EnvManager / PPO / AM-MAPPO / 贪心基线）
+#
+# 状态：源文件保留在仓库中，但**暂不纳入构建**。
+#
+# 阻塞原因（逐条均已核实）：
+#   1. 使用当前 CTorch 中不存在的自动微分接口：
+#        AutoDiff / AutoDiffContext::Guard / Tensor::backward()
+#      当前接口为 AutoGrad::backward(tensor.getRelatedNode(), retain_graph)。
+#      见 core/rl/PPOAgent.cpp 的 update()。
+#   2. 多处用 `float* p = t.data<float>()` 手写 clamp / min 循环
+#      （PPOAgent.cpp 中 clipped_ratio 与 min_surr 两处），
+#      直接改写数据指针不建立 grad_fn，会切断计算图。
+#   3. 依赖 core/simulator/PhysicsEngine/OIEngine.{h,cpp} 与 RK4Solver.cpp
+#      —— 这三个文件已被 DroneTypes / DroneDynamics / DroneSimulator /
+#      TensorUtils 取代并删除。
+#   4. 旧 CMakeLists 引用的 core/Map/VoxelMapMultiDroneTest.cpp 在仓库中不存在。
+#
+# 迁移方向：
+#   a. 环境层（Environment / EnvManager）改接 DroneSimulator；
+#   b. PPO 的动作采样与损失全部改为纯算子表达（保图），
+#      clamp 用 Min/Max 算子、min 用逐元素 Min，不再手写指针循环；
+#   c. total_loss.backward() 改为 AutoGrad::backward(total_loss.getRelatedNode(), false)。
+#
+# 迁移完成后再逐条恢复下列 target。
+# ===========================================================================
+# add_executable(PPOAgentTest ...)
+# add_executable(AMMAPPOUltraHardTest ...)
+# add_executable(GreedyBaselineTest ...)  等，见 706470b 提交中的原始定义
+
 # 已移除 -D_GLIBCXX_DEBUG / -D_GLIBCXX_DEBUG_PEDANTIC：
 # macOS 使用 libc++，这两个宏是 GCC libstdc++ 专有，实测完全空操作（无调试收益）；
-# 在 Linux/GCC 上则会改变 STL 容器 ABI，与未启用该宏编译的 CTorch 混链时存在不兼容风险。
+# 在 Linux/GCC 上则会改变 STL 容器 ABI，与未编译该宏的 CTorch 混链时存在不兼容风险。

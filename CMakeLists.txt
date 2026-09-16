@@ -102,3 +102,17 @@ add_test(NAME ppo_migration COMMAND test_ppo_grad)
 # macOS 使用 libc++，这两个宏是 GCC libstdc++ 专有，实测完全空操作（无调试收益）；
 # 在 Linux/GCC 上则会改变 STL 容器 ABI，与未编译该宏的 CTorch 混链时存在不兼容风险。
 
+
+# 环境层与贪心基线（不涉及张量运算，接口与当前 CTorch 无耦合）
+add_executable(EnvironmentTest
+        core/Map/VoxelMap.cpp core/rl/Environment.cpp core/rl/EnvironmentTest.cpp)
+target_include_directories(EnvironmentTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/rl ${CMAKE_CURRENT_SOURCE_DIR}/core/Map)
+target_link_libraries(EnvironmentTest PRIVATE oi3_simulator)
+
+add_executable(GreedyBaselineTest
+        core/Map/VoxelMap.cpp core/rl/Environment.cpp core/rl/EnvManager.cpp
+        core/rl/GreedyBaselineTest.cpp)
+target_include_directories(GreedyBaselineTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/rl ${CMAKE_CURRENT_SOURCE_DIR}/core/Map)
+target_link_libraries(GreedyBaselineTest PRIVATE oi3_simulator)

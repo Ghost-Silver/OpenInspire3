@@ -112,7 +112,21 @@ target_link_libraries(EnvironmentTest PRIVATE oi3_simulator)
 
 add_executable(GreedyBaselineTest
         core/Map/VoxelMap.cpp core/rl/Environment.cpp core/rl/EnvManager.cpp
-        core/rl/GreedyBaselineTest.cpp)
+        core/rl/Baseline.cpp core/rl/GreedyBaselineTest.cpp)
 target_include_directories(GreedyBaselineTest PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/core/rl ${CMAKE_CURRENT_SOURCE_DIR}/core/Map)
 target_link_libraries(GreedyBaselineTest PRIVATE oi3_simulator)
+
+add_executable(GreedyBaselineHardTest
+        core/Map/VoxelMap.cpp core/rl/Environment.cpp core/rl/EnvManager.cpp
+        core/rl/Baseline.cpp core/rl/GreedyBaselineHardTest.cpp)
+target_include_directories(GreedyBaselineHardTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/rl ${CMAKE_CURRENT_SOURCE_DIR}/core/Map)
+target_link_libraries(GreedyBaselineHardTest PRIVATE oi3_simulator)
+
+add_executable(GreedyBaselineUltraHardTest
+        core/Map/VoxelMap.cpp core/rl/Environment.cpp core/rl/EnvManager.cpp
+        core/rl/Baseline.cpp core/rl/GreedyBaselineUltraHardTest.cpp)
+target_include_directories(GreedyBaselineUltraHardTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/rl ${CMAKE_CURRENT_SOURCE_DIR}/core/Map)
+target_link_libraries(GreedyBaselineUltraHardTest PRIVATE oi3_simulator)

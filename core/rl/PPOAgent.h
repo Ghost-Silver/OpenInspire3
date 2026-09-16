@@ -25,6 +25,7 @@
 #include "ActionSpace.h"
 #include "Tensor.h"
 #include <cstddef>
+#include <random>
 #include <tuple>
 #include <vector>
 
@@ -160,6 +161,12 @@ class PPOAgent {
     Network _network;
     Optimizer _optimizer;
     std::vector<Experience> _buffer;
+    /// 动作采样用的随机数发生器。
+    /// 原实现在 select_action() 内每次构造 std::mt19937 并以 std::random_device
+    /// 播种，而 random_device 在 macOS 上要走系统熵源；按本场景规模（20 回合 ×
+    /// 600 步 × 6 架）累计约 7.2 万次构造，实测单次 select_action 开销
+    /// （294us）远高于其中的前向本身（约 21us）。改为成员，只在构造时播种一次。
+    std::mt19937 _rng;
     float _gamma;
     float _gae_lambda;
     float _clip_epsilon;

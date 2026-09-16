@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <numeric>
 #include <random>
 
 namespace {
@@ -205,8 +206,8 @@ void Optimizer::step() {
 
 PPOAgent::PPOAgent(int obs_dim, int hidden_dim, int action_dim, float lr)
     : _network(obs_dim, hidden_dim, action_dim),
-      _optimizer(_network.get_parameters(), lr), _gamma(0.99f),
-      _gae_lambda(0.95f), _clip_epsilon(0.2f), _batch_size(64),
+      _optimizer(_network.get_parameters(), lr), _rng(std::random_device{}()),
+      _gamma(0.99f), _gae_lambda(0.95f), _clip_epsilon(0.2f), _batch_size(64),
       _update_epochs(2) {}
 
 // [2026/9/16 修复] 移动语义必须重新绑定优化器。
@@ -219,7 +220,8 @@ PPOAgent::PPOAgent(int obs_dim, int hidden_dim, int action_dim, float lr)
 // 扩容时会移动已有元素，因此只要无人机数量超过首次扩容容量就必然触发。
 PPOAgent::PPOAgent(PPOAgent &&other) noexcept
     : _network(std::move(other._network)), _optimizer(std::move(other._optimizer)),
-      _buffer(std::move(other._buffer)), _gamma(other._gamma),
+      _buffer(std::move(other._buffer)), _rng(std::move(other._rng)),
+      _gamma(other._gamma),
       _gae_lambda(other._gae_lambda), _clip_epsilon(other._clip_epsilon),
       _batch_size(other._batch_size), _update_epochs(other._update_epochs) {
     _optimizer.rebind(_network.get_parameters());
@@ -230,6 +232,7 @@ PPOAgent &PPOAgent::operator=(PPOAgent &&other) noexcept {
         _network = std::move(other._network);
         _optimizer = std::move(other._optimizer);
         _buffer = std::move(other._buffer);
+        _rng = std::move(other._rng);
         _gamma = other._gamma;
         _gae_lambda = other._gae_lambda;
         _clip_epsilon = other._clip_epsilon;
@@ -254,9 +257,8 @@ std::tuple<int, float, float> PPOAgent::select_action(const std::vector<float> &
     const int action_dim = _network.actionDim();
     const float *policy_data = policy.data<float>();
 
-    std::mt19937 gen(std::random_device{}());
     std::discrete_distribution<> dist(policy_data, policy_data + action_dim);
-    const int action = dist(gen);
+    const int action = dist(_rng);
 
     const float prob = policy_data[action];
     const float log_prob = std::log(std::max(prob, 1e-12f));
@@ -330,62 +332,82 @@ void PPOAgent::update() {
 
     const int action_dim = _network.actionDim();
 
+    // 按 minibatch 分组更新。
+    //
+    // 原实现把整段缓冲区（回合步数 × 累积回合数，实测可达 1800 条）逐个累加进同一个
+    // policy_loss / value_loss，再对这一个巨型图做一次反传。图遍历深度与中间激活内存
+    // 都随 n 线性增长，是训练耗时的主要来源（ultra-hard 场景 20 回合约 21 分钟）。
+    // `_batch_size` 成员此前从未被使用，正是为分组预留的。
+    //
+    // 洗牌使用固定种子：采样本身已带随机性，此处固定种子只是让「数据顺序」这一项
+    // 在排查问题时可控。
+    constexpr unsigned kShuffleSeed = 20260916u;
+    const std::size_t batch_size =
+        std::min(n, static_cast<std::size_t>(std::max(1, _batch_size)));
+
+    std::vector<std::size_t> indices(n);
+    std::iota(indices.begin(), indices.end(), 0);
+    std::mt19937 rng(kShuffleSeed);
+
     for (int epoch = 0; epoch < _update_epochs; ++epoch) {
-        // [迁移] 原先这里构造 AutoDiff 上下文以开启梯度记录；
-        // 当前 CTorch 的 AutoGrad::EnableGrad 默认即为 true，无需显式开关。
-        _optimizer.zero_grad();
+        std::shuffle(indices.begin(), indices.end(), rng);
 
-        Tensor policy_loss(0.0f);
-        Tensor value_loss(0.0f);
+        for (std::size_t batch_begin = 0; batch_begin < n; batch_begin += batch_size) {
+            const std::size_t batch_end = std::min(batch_begin + batch_size, n);
 
-        for (std::size_t i = 0; i < n; ++i) {
-            const Tensor &obs = obs_list[i];
-            const Tensor &action = action_list[i];
-            const Tensor &old_log_prob = log_prob_list[i];
-            const Tensor &advantage = advantages[i];
-            const Tensor &target_return = returns[i];
+            _optimizer.zero_grad();
 
-            auto [policy, value] = _network.forward(obs);
+            Tensor policy_loss(0.0f);
+            Tensor value_loss(0.0f);
 
-            // [迁移] 关键修复：按索引取出所执行动作的对数概率，且保持计算图连接。
-            //
-            // 旧版做法是
-            //     float p = policy_data[action_idx];
-            //     Tensor new_log_prob(std::log(p));
-            // —— new_log_prob 由 float 构造，是独立叶子张量，与 policy 之间
-            // 没有任何梯度路径，于是策略梯度恒为零。改为 one-hot 掩码：
-            //     (log_policy * one_hot).sum()  →  标量，且梯度能回传到 policy。
-            const int action_idx = static_cast<int>(action.data<float>()[0]);
-            const Tensor one_hot = makeOneHot(action_idx, action_dim);
-            const Tensor log_policy = policy.clamp(1e-12f, 1.0f).log();
-            const Tensor new_log_prob = (log_policy * one_hot).sum();
+            for (std::size_t k = batch_begin; k < batch_end; ++k) {
+                const std::size_t i = indices[k];
+                const Tensor &obs = obs_list[i];
+                const Tensor &action = action_list[i];
+                const Tensor &old_log_prob = log_prob_list[i];
+                const Tensor &advantage = advantages[i];
+                const Tensor &target_return = returns[i];
 
-            // 概率比率 r = exp(log π_new − log π_old)
-            const Tensor ratio = (new_log_prob - old_log_prob).exp();
+                auto [policy, value] = _network.forward(obs);
 
-            // [迁移] clamp 改用算子：一行替代原先的 11 行指针循环，
-            // 且 clamp 会注册节点，梯度可正常回传。
-            const Tensor clipped_ratio =
-                ratio.clamp(1.0f - _clip_epsilon, 1.0f + _clip_epsilon);
+                // [迁移] 关键修复：按索引取出所执行动作的对数概率，且保持计算图连接。
+                //
+                // 旧版做法是
+                //     float p = policy_data[action_idx];
+                //     Tensor new_log_prob(std::log(p));
+                // —— new_log_prob 由 float 构造，是独立叶子张量，与 policy 之间
+                // 没有任何梯度路径，于是策略梯度恒为零。改为 one-hot 掩码：
+                //     (log_policy * one_hot).sum()  →  标量，且梯度能回传到 policy。
+                const int action_idx = static_cast<int>(action.data<float>()[0]);
+                const Tensor one_hot = makeOneHot(action_idx, action_dim);
+                const Tensor log_policy = policy.clamp(1e-12f, 1.0f).log();
+                const Tensor new_log_prob = (log_policy * one_hot).sum();
 
-            const Tensor surr1 = ratio * advantage;
-            const Tensor surr2 = clipped_ratio * advantage;
+                // 概率比率 r = exp(log π_new − log π_old)
+                const Tensor ratio = (new_log_prob - old_log_prob).exp();
 
-            // [迁移] 逐元素 min 改用算子（原为拷贝 + 指针循环，两条路径都断图）
-            const Tensor min_surr = surr1.min(surr2);
+                // [迁移] clamp 改用算子：一行替代原先的 11 行指针循环，
+                // 且 clamp 会注册节点，梯度可正常回传。
+                const Tensor clipped_ratio =
+                    ratio.clamp(1.0f - _clip_epsilon, 1.0f + _clip_epsilon);
 
-            policy_loss = policy_loss + (-min_surr).mean();
-            // 价值损失：0.5 * (R - V)^2，系数在外层统一乘
-            value_loss = value_loss + (target_return - value).square().mean();
+                const Tensor surr1 = ratio * advantage;
+                const Tensor surr2 = clipped_ratio * advantage;
+
+                // [迁移] 逐元素 min 改用算子（原为拷贝 + 指针循环，两条路径都断图）
+                const Tensor min_surr = surr1.min(surr2);
+
+                policy_loss = policy_loss + (-min_surr).mean();
+                // 价值损失：0.5 * (R - V)^2，系数在外层统一乘
+                value_loss = value_loss + (target_return - value).square().mean();
+            }
+
+            const Tensor total_loss = policy_loss + value_loss * 0.5f;
+
+            // 每个 minibatch 单独反传与更新：图不跨组复用，故 retain_graph = false。
+            AutoGrad::backward(total_loss.getRelatedNode(), false);
+            _optimizer.step();
         }
-
-        const Tensor total_loss = policy_loss + value_loss * 0.5f;
-
-        // [迁移] total_loss.backward() → AutoGrad::backward(node, retain_graph)。
-        // 每一轮 epoch 都会重新前向，图不跨轮复用，故 retain_graph = false。
-        AutoGrad::backward(total_loss.getRelatedNode(), false);
-
-        _optimizer.step();
     }
 
     clear_buffer();

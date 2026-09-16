@@ -18,18 +18,16 @@
  *      update() 之后网络参数的数值必须真的发生变化。
  *
  * ---------------------------------------------------------------------------
- * 附：诊断过程中定位到但**本次未修**的 CTorch 缺陷（留作哨兵）
+ * 附：CTorch 侧已修复的缺陷（本测试的 0c / 0d 为其回归用例）
  *
- *   Test 0 的 0c / 0d 用例记录的是 `Tensor::transpose()` / `t()` 不参与 autograd：
- *     - `AutoGrad/Nodes/` 下没有 TransposeNode；
- *     - `transpose()` 内部是 `Tensor result(*this)`（拷贝构造，节点被替换为
- *       GradAccumulator），因此梯度无法穿过转置；
- *     - 多个转置反向叠加后还会破坏内部状态，导致后续用例形状断言崩溃。
+ *   `Tensor::transpose()` / `t()` 原先不参与 autograd：`AutoGrad/Nodes/` 下没有
+ *   TransposeNode，且 transpose 内部是 `Tensor result(*this)`（拷贝构造，节点被
+ *   替换为 GradAccumulator），梯度无法穿过转置；多个转置反向叠加后还会破坏内部
+ *   状态，导致后续用例形状断言崩溃。
  *
- *   本次采用「权重按 [fan_in, fan_out] 布局、前向不做转置」规避（见 PPOAgent.cpp
- *   的 Network 构造函数注释）。根治需要新增 op 枚举项 + 同步
- *   CtorchScheduler.h 的 kCount 静态断言 + 新增 TransposeNode —— 属 AGENTS.md
- *   标注的红线区域（op 枚举顺序 / 静态断言），风险与工作量都需单独立项评估。
+ *   修复方式：新增 `TransposeNode`（转置自逆，反向即再转置一次），并在
+ *   `Tensor::transpose()` 中补节点注册；前向仍是纯元数据操作、不经调度器，
+ *   因此无需新增 op 枚举项，避开 op 顺序与 kCount 静态断言两条红线。
  * ---------------------------------------------------------------------------
  */
 
@@ -192,7 +190,7 @@ void testMinimalMatMulGradient() {
         Tensor loss = w.t().sum();
         if (loss.getRelatedNode()) AutoGrad::backward(loss.getRelatedNode(), false);
         const double g = maxAbsGrad(w);
-        infoCheck("0c  w.t().sum()", g > 1e-9, g);
+        subCheck("0c  w.t().sum()", g > 1e-9, g);
     }
 {   // 0d: matmul + 转置（PPO 网络的实际写法）
         Tensor x(ShapeTag{}, {1, 3}); x.rand();
@@ -200,7 +198,7 @@ void testMinimalMatMulGradient() {
         Tensor loss = x.matmul(w.t()).sum();
         if (loss.getRelatedNode()) AutoGrad::backward(loss.getRelatedNode(), false);
         const double g = maxAbsGrad(w);
-        infoCheck("0d  x.matmul(w.t()).sum()", g > 1e-9, g);
+        subCheck("0d  x.matmul(w.t()).sum()", g > 1e-9, g);
     }
     {   // 0e: 两层网络形态（权重按 [in, out] 布局，与迁移后的 PPO 一致）
         Tensor x(ShapeTag{}, {1, 3}); x.rand();
@@ -251,11 +249,14 @@ void testParametersActuallyUpdate() {
                                0.1f * static_cast<float>(i + 1));
         auto [action, log_prob, value] = agent.select_action(obs);
         // 让旧策略的 log_prob 与「重新前向」得到的值略有差异，制造非退化的 ratio。
-        // 若直接用 select_action 返回的 log_prob，则 ratio ≡ 1，PPO 的 clip 上下界
-        // 在该点重合（surr1 == surr2），策略头在该点的梯度天然接近 0 ——
-        // 那是退化情形，不能用来判断策略梯度是否连通。
+        //
+        // 偏移量必须小：PPO 的 clip 区间是 [1-ε, 1+ε] = [0.8, 1.2]（ε=0.2）。
+        // 若偏移过大（例如 -0.5，ratio ≈ 1.65），ratio 越界后 surr2 被 clip 成常数，
+        // min(surr1, surr2) 取到被 clip 的那一支，梯度被**设计性地**截断为 0 ——
+        // 那是 PPO 限制策略更新幅度的正确行为，不是梯度链断裂。
+        // 取 0.05（ratio ≈ 1.05，落在区间内）才能真实检验策略梯度是否连通。
         agent.store_experience(
-            makeExperience(obs, action, log_prob - 0.5f, value, 1.0f, 0.0f));
+            makeExperience(obs, action, log_prob - 0.05f, value, 1.0f, 0.0f));
     }
 
     const std::vector<float> fc1_before = snapshot(net.param(Network::FC1_W));

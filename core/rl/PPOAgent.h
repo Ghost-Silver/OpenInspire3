@@ -38,6 +38,9 @@ struct Experience {
     Tensor done;     ///< 终止标志
 };
 
+/// 由观测向量构造 [1, n] 张量（供调用方构造 Experience 使用）
+Tensor makeObsTensor(const std::vector<float> &obs);
+
 /**
  * @class Network
  * @brief 策略/价值网络：两层 MLP 主干 + 策略头 + 价值头
@@ -102,11 +105,17 @@ class Optimizer {
     explicit Optimizer(std::vector<Tensor> &params, float lr = 3e-4f,
                        float mom = 0.9f, float wd = 0.0001f);
 
+    /// 重新绑定参数向量（供持有者在自身被移动后修正指向）
+    void rebind(std::vector<Tensor> &params) { _params = &params; }
+
     void zero_grad();
     void step();
 
   private:
-    std::vector<Tensor> &_params; ///< 引用而非拷贝
+    /// 指针而非引用：Optimizer 必须能在其持有者被移动后重新绑定。
+    /// C++ 引用一经绑定不可更换，若用引用，则任何移动 PPOAgent 的容器操作
+    /// （如 std::vector 扩容）都会让这里指向已析构的旧对象。
+    std::vector<Tensor> *_params;
     float _lr;
     float _momentum;
     float _weight_decay;
@@ -119,6 +128,14 @@ class Optimizer {
 class PPOAgent {
   public:
     PPOAgent(int obs_dim, int hidden_dim, int action_dim, float lr = 3e-4f);
+
+    /// 内部 Optimizer 指向 _network 的参数，拷贝会产生悬垂引用，故禁止拷贝。
+    PPOAgent(const PPOAgent &) = delete;
+    PPOAgent &operator=(const PPOAgent &) = delete;
+
+    /// 移动后需要把 Optimizer 重新绑定到自身（而非源对象）的网络参数
+    PPOAgent(PPOAgent &&other) noexcept;
+    PPOAgent &operator=(PPOAgent &&other) noexcept;
 
     /// 采样动作，返回 (动作索引, 对数概率, 状态价值)
     std::tuple<int, float, float> select_action(const std::vector<float> &obs);

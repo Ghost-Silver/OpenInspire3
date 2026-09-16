@@ -43,19 +43,6 @@ void initHeWeight(Tensor &w, std::size_t fan_in) {
 }
 
 /**
- * @brief 把观测向量转为 [1, n] 张量
- * @note 这里写入的是**新建叶子张量**的数据，属于常量输入，不涉及梯度。
- */
-Tensor makeObsTensor(const std::vector<float> &obs) {
-    Tensor t(ShapeTag{}, {1, obs.size()});
-    float *p = t.data<float>();
-    for (std::size_t i = 0; i < obs.size(); ++i) {
-        p[i] = obs[i];
-    }
-    return t;
-}
-
-/**
  * @brief 构造 one-hot 行向量 [1, n]
  *
  * 用途：从策略分布中按索引取出所执行动作的概率，同时**保持计算图连接**。
@@ -72,6 +59,19 @@ Tensor makeOneHot(int index, int n) {
 }
 
 } // namespace
+
+/**
+ * @brief 把观测向量转为 [1, n] 张量
+ * @note 这里写入的是**新建叶子张量**的数据，属于常量输入，不涉及梯度。
+ */
+Tensor makeObsTensor(const std::vector<float> &obs) {
+    Tensor t(ShapeTag{}, {1, obs.size()});
+    float *p = t.data<float>();
+    for (std::size_t i = 0; i < obs.size(); ++i) {
+        p[i] = obs[i];
+    }
+    return t;
+}
 
 // ============================== Network ==============================
 
@@ -169,10 +169,10 @@ Tensor Network::get_value(const Tensor &obs) {
 // ============================== Optimizer ==============================
 
 Optimizer::Optimizer(std::vector<Tensor> &params, float lr, float mom, float wd)
-    : _params(params), _lr(lr), _momentum(mom), _weight_decay(wd) {}
+    : _params(&params), _lr(lr), _momentum(mom), _weight_decay(wd) {}
 
 void Optimizer::zero_grad() {
-    for (auto &p : _params) {
+    for (auto &p : *_params) {
         p.zero_grad();
     }
 }
@@ -188,7 +188,7 @@ void Optimizer::step() {
     //
     // 原地写入保持参数张量对象本身不变（node 仍为 GradAccumulator），
     // 数值更新效果等价。
-    for (auto &p : _params) {
+    for (auto &p : *_params) {
         float *gp = p.grad_ptr();
         if (gp == nullptr) {
             continue;
@@ -208,6 +208,37 @@ PPOAgent::PPOAgent(int obs_dim, int hidden_dim, int action_dim, float lr)
       _optimizer(_network.get_parameters(), lr), _gamma(0.99f),
       _gae_lambda(0.95f), _clip_epsilon(0.2f), _batch_size(64),
       _update_epochs(2) {}
+
+// [2026/9/16 修复] 移动语义必须重新绑定优化器。
+//
+// Optimizer 内部指向 _network 的参数向量。编译器隐式生成的移动构造只做逐成员
+// 搬移，_optimizer 会连同指针一起指向**源对象**的 _network 参数；源对象析构后
+// 该指针悬垂，update() 里 step() 一写就崩。
+//
+// 这不是理论风险：`std::vector<PPOAgent> agents; agents.emplace_back(...)` 在
+// 扩容时会移动已有元素，因此只要无人机数量超过首次扩容容量就必然触发。
+PPOAgent::PPOAgent(PPOAgent &&other) noexcept
+    : _network(std::move(other._network)), _optimizer(std::move(other._optimizer)),
+      _buffer(std::move(other._buffer)), _gamma(other._gamma),
+      _gae_lambda(other._gae_lambda), _clip_epsilon(other._clip_epsilon),
+      _batch_size(other._batch_size), _update_epochs(other._update_epochs) {
+    _optimizer.rebind(_network.get_parameters());
+}
+
+PPOAgent &PPOAgent::operator=(PPOAgent &&other) noexcept {
+    if (this != &other) {
+        _network = std::move(other._network);
+        _optimizer = std::move(other._optimizer);
+        _buffer = std::move(other._buffer);
+        _gamma = other._gamma;
+        _gae_lambda = other._gae_lambda;
+        _clip_epsilon = other._clip_epsilon;
+        _batch_size = other._batch_size;
+        _update_epochs = other._update_epochs;
+        _optimizer.rebind(_network.get_parameters());
+    }
+    return *this;
+}
 
 std::tuple<int, float, float> PPOAgent::select_action(const std::vector<float> &obs) {
     Tensor obs_tensor = makeObsTensor(obs);

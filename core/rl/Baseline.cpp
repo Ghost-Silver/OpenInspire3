@@ -116,18 +116,6 @@ bool insideObstacle(const Vec3 &pos, const std::vector<Obstacle> &obstacles) {
     return false;
 }
 
-/// Obstacle（中心 + 尺寸）→ AABB，供 EnvManager 使用
-std::vector<AABB> toAABBs(const std::vector<Obstacle> &obstacles) {
-    std::vector<AABB> out;
-    out.reserve(obstacles.size());
-    for (const auto &ob : obstacles) {
-        const double half = ob.size / 2.0;
-        out.push_back(AABB{ob.center.x() - half, ob.center.y() - half, ob.center.z() - half,
-                           ob.center.x() + half, ob.center.y() + half, ob.center.z() + half});
-    }
-    return out;
-}
-
 double mean(const std::vector<double> &v) {
     if (v.empty()) {
         return 0.0;
@@ -147,6 +135,21 @@ double stddev(const std::vector<double> &v, double m) {
 }
 
 } // namespace
+
+// ---------------------------------------------------------------------------
+// 障碍物转换
+// ---------------------------------------------------------------------------
+
+std::vector<AABB> toAABBs(const std::vector<Obstacle> &obstacles) {
+    std::vector<AABB> out;
+    out.reserve(obstacles.size());
+    for (const auto &ob : obstacles) {
+        const double half = ob.size / 2.0;
+        out.push_back(AABB{ob.center.x() - half, ob.center.y() - half, ob.center.z() - half,
+                           ob.center.x() + half, ob.center.y() + half, ob.center.z() + half});
+    }
+    return out;
+}
 
 // ---------------------------------------------------------------------------
 // 基线策略

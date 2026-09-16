@@ -31,6 +31,9 @@
 #include <string>
 #include <vector>
 
+/// 轴对齐包围盒，定义于 core/Map/VoxelMap.h（全局命名空间）
+struct AABB;
+
 namespace oi3::rl {
 
 /// 圆形障碍物（以中心与直径描述）
@@ -38,6 +41,10 @@ struct Obstacle {
     Vec3 center;
     double size;
 };
+
+/// Obstacle（中心 + 尺寸）→ AABB
+/// 供需要自行构造 EnvManager 的调用方复用（如 PPO 训练驱动）
+std::vector<AABB> toAABBs(const std::vector<Obstacle> &obstacles);
 
 /// 评测场景参数
 struct Scenario {

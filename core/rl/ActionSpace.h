@@ -32,15 +32,9 @@ public:
         return Vec3(x_ * scalar, y_ * scalar, z_ * scalar);
     }
 
-    // 赋值
-    Vec3& operator=(const Vec3& other) {
-        if (this != &other) {
-            x_ = other.x_;
-            y_ = other.y_;
-            z_ = other.z_;
-        }
-        return *this;
-    }
+    // 拷贝与赋值一律交给编译器生成的版本：
+    // 手写拷贝赋值与逐成员赋值语义相同（自赋值对 double 亦无害），
+    // 却会抑制隐式拷贝构造，触发 -Wdeprecated-copy。故不再自定义赋值运算符。
 
     // 获取坐标
     double x() const { return x_; }

@@ -109,6 +109,18 @@ class ContinuousPPO {
     /// 取策略均值（评估与部署用，确定性动作）
     [[nodiscard]] std::array<float, 3> actMean(const std::vector<float> &obs);
 
+    /**
+     * @brief 行为克隆：一步监督学习，让策略均值拟合给定动作（诊断用）
+     *
+     * 用途是把「网络与反向传播是否可用」从「PPO 的梯度估计是否正确」中分离出来。
+     * 若连用专家动作做监督学习都无法降低损失，则问题在网络或反传路径，与 PPO
+     * 的超参数无关。
+     *
+     * @return 本步的均方误差
+     */
+    float behaviorCloneStep(const std::vector<std::vector<float>> &obs_batch,
+                            const std::vector<std::array<float, 3>> &action_batch);
+
     void store(const Transition &transition);
     void clearBuffer();
     [[nodiscard]] std::size_t bufferSize() const { return _buffer.size(); }
@@ -124,6 +136,18 @@ class ContinuousPPO {
 
     /// 最近一次 update 的统计量
     [[nodiscard]] const UpdateStats &lastStats() const { return _last_stats; }
+
+    /// 最近一次 sgdStep 中拿到非空梯度的参数个数（诊断用）
+    [[nodiscard]] int paramsWithGrad() const { return _last_params_with_grad; }
+
+    /// 参数总数
+    [[nodiscard]] int paramCount() const { return static_cast<int>(_params.size()); }
+
+    /// 各参数的梯度范数（诊断用；参数顺序同 ParamIndex，空梯度记 0）
+    [[nodiscard]] std::vector<float> gradNorms();
+
+    /// 各参数的数据范数（诊断用，用于判断是否真的发生了变化）
+    [[nodiscard]] std::vector<float> paramNorms() const;
 
   private:
     /// 参数在 _params 中的下标
@@ -158,6 +182,7 @@ class ContinuousPPO {
     std::vector<Tensor> _params;
     std::vector<Transition> _buffer;
     UpdateStats _last_stats;
+    int _last_params_with_grad = 0;
     std::mt19937 _rng;
     std::normal_distribution<float> _normal{0.0f, 1.0f};
 };

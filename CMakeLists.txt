@@ -81,6 +81,12 @@ add_executable(TrainHoverPolicy core/control/TrainHoverPolicy.cpp)
 target_compile_options(TrainHoverPolicy PRIVATE -Wall -Wextra)
 target_link_libraries(TrainHoverPolicy PRIVATE oi3_simulator)
 
+# 行为克隆诊断：用 PID 生成专家动作让策略网络做监督学习，
+# 以分离「网络/反传是否可用」与「PPO 梯度估计是否正确」两类问题
+add_executable(BcDiagnostic core/control/BcDiagnostic.cpp)
+target_compile_options(BcDiagnostic PRIVATE -Wall -Wextra)
+target_link_libraries(BcDiagnostic PRIVATE oi3_simulator)
+
 # ===========================================================================
 # core/rl/ —— 强化学习栈（搜索环境 / EnvManager / PPO / AM-MAPPO / 贪心基线）
 #

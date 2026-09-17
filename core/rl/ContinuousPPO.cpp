@@ -27,13 +27,16 @@ Tensor makeObsTensor(const std::vector<float> &obs) {
     return t;
 }
 
-/// 策略输出层的额外缩放系数
+/// 策略输出层的缩放系数
 ///
-/// 动作幅度直接对应推力偏离悬停量的比例（动作 1.0 等于一整个 m*g）。若输出层
-/// 与隐层采用同一尺度，初始策略就会输出 O(1) 的动作，等效于持续施加接近满量
-/// 程的推力偏置，无人机在数十秒内即飞出数百米并落到训练分布之外，训练无法
-/// 从合理工作点开始。缩小后初始策略近似「保持悬停」。
-constexpr float kPolicyOutputScale = 0.01f;
+/// 需要折中：系数过小（曾用 0.01）能让初始策略温和，但梯度从损失回传到隐层
+/// 必须乘以本层权重，缩得越小隐层梯度衰减越厉害——实测 0.01 时隐层权重完全
+/// 冻结（梯度范数比策略头小三个数量级），网络退化成「随机特征 + 线性头」，
+/// 连行为克隆都拟合不了。取 0.3：既把初始动作压到合理量级，又保留学习通路。
+///
+/// 初始动作过激的问题另有更直接的解法（缩动作到推力的映射尺度、回合内发散
+/// 判据），不应以牺牲可学习性为代价。
+constexpr float kPolicyOutputScale = 0.3f;
 
 /// log_std 的允许区间
 ///
@@ -256,6 +259,74 @@ void ContinuousPPO::store(const Transition &transition) {
     _buffer.push_back(transition);
 }
 
+std::vector<float> ContinuousPPO::gradNorms() {
+    std::vector<float> out;
+    out.reserve(_params.size());
+    for (auto &p : _params) {
+        const float *gp = p.grad_ptr();
+        if (gp == nullptr) {
+            out.push_back(0.0f);
+            continue;
+        }
+        float sum = 0.0f;
+        const std::size_t n = p.numel();
+        for (std::size_t i = 0; i < n; ++i) {
+            sum += gp[i] * gp[i];
+        }
+        out.push_back(std::sqrt(sum));
+    }
+    return out;
+}
+
+std::vector<float> ContinuousPPO::paramNorms() const {
+    std::vector<float> out;
+    out.reserve(_params.size());
+    for (const auto &p : _params) {
+        const float *dp = p.data<float>();
+        float sum = 0.0f;
+        const std::size_t n = p.numel();
+        for (std::size_t i = 0; i < n; ++i) {
+            sum += dp[i] * dp[i];
+        }
+        out.push_back(std::sqrt(sum));
+    }
+    return out;
+}
+
+float ContinuousPPO::behaviorCloneStep(const std::vector<std::vector<float>> &obs_batch,
+                                       const std::vector<std::array<float, 3>> &action_batch) {
+    const std::size_t rows = obs_batch.size();
+    const std::size_t obs_dim = static_cast<std::size_t>(_cfg.obs_dim);
+    const std::size_t act_dim = static_cast<std::size_t>(_cfg.action_dim);
+
+    Tensor obs_t(ShapeTag{}, {rows, obs_dim});
+    Tensor act_t(ShapeTag{}, {rows, act_dim});
+    {
+        float *op = obs_t.data<float>();
+        for (std::size_t i = 0; i < rows; ++i) {
+            for (std::size_t j = 0; j < obs_dim; ++j) {
+                op[i * obs_dim + j] = obs_batch[i][j];
+            }
+        }
+        float *ap = act_t.data<float>();
+        for (std::size_t i = 0; i < rows; ++i) {
+            for (std::size_t j = 0; j < act_dim; ++j) {
+                ap[i * act_dim + j] = action_batch[i][j];
+            }
+        }
+    }
+
+    zeroGrad();
+    auto [mean, value] = forward(obs_t);
+    (void)value;
+
+    const Tensor loss = (mean - act_t).square().mean();
+    const float loss_value = loss.data<float>()[0];
+    AutoGrad::backward(loss.getRelatedNode(), false);
+    sgdStep();
+    return loss_value;
+}
+
 float ContinuousPPO::meanLogStd() const {
     const Tensor effective = _params[LOG_STD].clamp(kLogStdMin, kLogStdMax);
     const float *ls = effective.data<float>();
@@ -321,11 +392,13 @@ float ContinuousPPO::sgdStep() {
     // 原地写入更新，与 CTorch mnist 的 sgd_step 一致。
     // 不能用 `p = p - lr*g`：移动赋值会把计算图节点搬进参数槽位，
     // 参数不再是带 GradAccumulator 的叶子张量，图结构逐轮膨胀。
+    _last_params_with_grad = 0;
     for (auto &p : _params) {
         float *gp = p.grad_ptr();
         if (gp == nullptr) {
             continue;
         }
+        ++_last_params_with_grad;
         float *pp = p.data_write<float>();
         const std::size_t n = p.numel();
         for (std::size_t i = 0; i < n; ++i) {

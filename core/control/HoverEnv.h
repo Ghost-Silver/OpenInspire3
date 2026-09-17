@@ -111,6 +111,24 @@ class HoverEnv {
     /// 最近一次回合的末端位置误差（米），供训练日志使用
     [[nodiscard]] double lastPositionError() const { return _last_pos_error; }
 
+    /// 当前回合的目标位置（NED，米）
+    [[nodiscard]] std::array<float, 3> target() const {
+        return {static_cast<float>(_target[0]), static_cast<float>(_target[1]),
+                static_cast<float>(_target[2])};
+    }
+
+    /// 当前飞行器状态（供解析控制器生成专家数据使用）
+    [[nodiscard]] const DroneState &state() const { return _sim.state(); }
+
+    /**
+     * @brief 把推力换算为归一化动作（HoverEnv::step 的逆映射）
+     *
+     * a_i = (thrust_i - hover_i) / (thrust_scale * m * g)，并限幅到 [-1,1]。
+     * 用于把解析控制器（如 PID）的输出转成策略的动作表示，以便生成专家数据。
+     */
+    [[nodiscard]] std::array<float, 3> thrustToAction(
+        const std::array<double, 3> &thrust) const;
+
   private:
     [[nodiscard]] std::vector<float> makeObservation(double pos_err_n, double pos_err_e,
                                                      double pos_err_d) const;

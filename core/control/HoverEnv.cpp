@@ -78,6 +78,21 @@ std::vector<float> HoverEnv::reset() {
     return makeObservation(_target[0] - p0[0], _target[1] - p0[1], _target[2] - p0[2]);
 }
 
+std::array<float, 3> HoverEnv::thrustToAction(const std::array<double, 3> &thrust) const {
+    const double m = _cfg.plant.mass;
+    const double g = _cfg.plant.gravity;
+    const double hover[3] = {0.0, 0.0, -m * g};
+    const double scale = std::max(1e-9, _cfg.thrust_scale * m * g);
+
+    std::array<float, 3> action{};
+    for (int i = 0; i < 3; ++i) {
+        const double a = (thrust[static_cast<std::size_t>(i)] - hover[i]) / scale;
+        action[static_cast<std::size_t>(i)] =
+            static_cast<float>(std::max(-1.0, std::min(1.0, a)));
+    }
+    return action;
+}
+
 HoverEnv::StepResult HoverEnv::step(const std::array<float, 3> &action) {
     const double m = _cfg.plant.mass;
     const double g = _cfg.plant.gravity;

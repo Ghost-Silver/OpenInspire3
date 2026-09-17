@@ -29,6 +29,8 @@ add_library(oi3_simulator STATIC
         core/simulator/PhysicsEngine/TensorUtils.cpp
         core/control/PidController.cpp
         core/control/ClosedLoop.cpp
+        core/control/HoverEnv.cpp
+        core/rl/ContinuousPPO.cpp
         core/Map/VoxelMap.cpp
 )
 
@@ -37,6 +39,7 @@ target_include_directories(oi3_simulator PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/core/CTorch/include
         ${CMAKE_CURRENT_SOURCE_DIR}/core/simulator/PhysicsEngine
         ${CMAKE_CURRENT_SOURCE_DIR}/core/control
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/rl
         ${CMAKE_CURRENT_SOURCE_DIR}/core/Map
 )
 
@@ -71,6 +74,12 @@ add_executable(PidHoverTest core/control/PidHoverTest.cpp)
 target_compile_options(PidHoverTest PRIVATE -Wall -Wextra)
 target_link_libraries(PidHoverTest PRIVATE oi3_simulator)
 add_test(NAME pid_hover COMMAND PidHoverTest)
+
+# 神经网络飞控训练：连续 PPO 学习定点悬停，并与 PID 在同一指标下对比。
+# 训练耗时随回合数增长，默认不加入 ctest（可用 --episodes 调整）。
+add_executable(TrainHoverPolicy core/control/TrainHoverPolicy.cpp)
+target_compile_options(TrainHoverPolicy PRIVATE -Wall -Wextra)
+target_link_libraries(TrainHoverPolicy PRIVATE oi3_simulator)
 
 # ===========================================================================
 # core/rl/ —— 强化学习栈（搜索环境 / EnvManager / PPO / AM-MAPPO / 贪心基线）

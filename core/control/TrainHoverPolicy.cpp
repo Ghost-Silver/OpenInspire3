@@ -83,6 +83,29 @@ class NeuralController : public Controller {
     HoverEnvConfig _cfg;
 };
 
+/// 课程学习档位：按训练进度推进目标采样范围
+///
+/// 直接使用大范围时，随机初始化的策略几乎每回合都撞发散边界，所有样本回报趋同、
+/// 优势失去区分度。从小范围起步、随策略成熟逐步扩大，是标准的课程学习做法。
+struct CurriculumStage {
+    double progress;     ///< 达到该训练进度后生效
+    double target_range; ///< 目标位置各轴采样范围（±，米）
+};
+
+const std::vector<CurriculumStage> kCurriculum = {
+    {0.00, 0.3}, {0.25, 0.6}, {0.50, 1.0}, {0.75, 1.5},
+};
+
+CurriculumStage stageAt(double progress) {
+    CurriculumStage current = kCurriculum.front();
+    for (const auto &stage : kCurriculum) {
+        if (progress >= stage.progress) {
+            current = stage;
+        }
+    }
+    return current;
+}
+
 void printHeading(const char *title) {
     std::cout << "\n========================================\n";
     std::cout << title << "\n";
@@ -98,10 +121,7 @@ int main(int argc, char **argv) {
 
     // ---- 被控对象：带阻力与推力限幅，非线性且受限 ----
     HoverEnvConfig env_cfg;
-    // 课程学习的第一档：目标与初始位置都限制在小范围内。
-    // 直接用它去学 ±1.5m 的随机目标时，随机初始化策略几乎每回合都撞发散边界，
-    // 所有样本的回报趋于一致、优势失去区分度，PPO 无从下手。先在小范围内
-    // 产生「成功」样本，再逐步扩大范围。
+    // 起点为课程学习第一档，训练过程中由 kCurriculum 逐步扩大（见训练循环）
     env_cfg.target_range = 0.3;
     env_cfg.start_range = 0.05;
     env_cfg.abort_radius = 2.0;
@@ -113,7 +133,10 @@ int main(int argc, char **argv) {
     // 向上机动余量只剩 2.19 N 而向下有 4.9 N，动作空间严重不对称，
     // 目标在上方时策略几乎无计可施。
     env_cfg.plant.max_thrust = 20.0;
-    env_cfg.episode_seconds = 2.0;
+    // 回合时长 3 秒：PID 在同类任务上需 1.73 秒收敛，2 秒对策略过紧；
+    // 而 4 秒会让策略退化为「前段收敛、后段漂移」的开环轨迹（实测稳态误差
+    // 由 0.08m 劣化到 0.74m），取 3 秒为折中。
+    env_cfg.episode_seconds = 3.0;
     env_cfg.control_decimation = 10; // 控制 100 Hz，仿真 1 kHz
     // 动作范围取 0.8 倍 m*g：与限幅（约 2 倍 m*g）共同界定可用的推力区间
     env_cfg.thrust_scale = 0.8;
@@ -160,14 +183,14 @@ int main(int argc, char **argv) {
     HoverEnv env(env_cfg, 42u);
     rl::ContinuousPPO agent(ppo_cfg, 12345u);
 
-    // 评估任务必须落在训练分布内（target_range = 0.3）。
-    // 此前用 (0.8, -0.6, -0.9)（误差 1.35m）评估在 ±0.3m 上训练的策略，
-    // 属于分布外测试，结果自然发散，并曾据此误判为「策略没学会」。
+    // 评估任务落在课程学习终点档位的范围内（±1.5m，该任务误差 1.35m）。
+    // 注意：评估任务的误差范围必须与训练配置一致 —— 曾用 1.35m 的任务去评测
+    // 在 ±0.3m 上训练的策略，属分布外测试，并据此连续误判「策略发散」。
     FlightTask task;
-    task.name = "定点悬停 (0,0,0) -> (0.2, -0.15, -0.2)";
+    task.name = "定点悬停 (0,0,0) -> (0.8, -0.6, -0.9)";
     task.initial_pos = makeVec3(0.0f, 0.0f, 0.0f);
     task.initial_vel = makeVec3(0.0f, 0.0f, 0.0f);
-    task.target = makeVec3(0.2f, -0.15f, -0.2f);
+    task.target = makeVec3(0.8f, -0.6f, -0.9f);
     task.duration = 5.0;
     task.tolerance = 0.05;
 
@@ -222,6 +245,18 @@ int main(int argc, char **argv) {
     double update_seconds = 0.0;
 
     for (int ep = 0; ep < episodes; ++ep) {
+        // 课程学习：随训练进度扩大目标范围，发散边界同步放开
+        {
+            const double progress = static_cast<double>(ep) / std::max(1, episodes);
+            const CurriculumStage stage = stageAt(progress);
+            if (std::abs(stage.target_range - env.targetRange()) > 1e-9) {
+                env.setCurriculum(stage.target_range, 3.0 * stage.target_range);
+                std::cout << "  [课程] 第 " << (ep + 1) << " 回合：目标范围扩至 ±"
+                          << stage.target_range << " m，发散边界 "
+                          << env.abortRadius() << " m" << std::endl;
+            }
+        }
+
         std::vector<float> obs = env.reset();
         double episode_reward = 0.0;
         bool success = false;

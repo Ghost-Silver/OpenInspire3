@@ -59,6 +59,15 @@ struct HoverEnvConfig {
     double success_speed = 0.5;     ///< 到位判定速度上限（米/秒）
 
     /**
+     * @brief 判定成功所需的连续保持在容差带内的控制周期数
+     *
+     * 成功判据定义为「回合内曾经连续稳定悬停」，而不是「回合结束那一刻恰好落在
+     * 容差带内」。后者会因回合时长而失真：策略可能在前半段已稳定到位，后半段
+     * 缓慢漂移，却因最后一刻误差略大而被判失败。
+     */
+    int success_hold_steps = 20;
+
+    /**
      * @brief 回合内发散判据：位置误差超过该半径即终止本回合
      *
      * 训练早期策略尚不成熟时，无人机可能持续朝错误方向加速并迅速飞远。
@@ -121,6 +130,19 @@ class HoverEnv {
     [[nodiscard]] const DroneState &state() const { return _sim.state(); }
 
     /**
+     * @brief 调整目标采样范围（课程学习用）
+     *
+     * 直接扩大范围会让随机初始化的策略几乎每回合都撞发散边界、样本失去区分度，
+     * 因此需要从小的范围起步、随策略成熟逐步扩大。
+     *
+     * @note 同步放开发散边界：否则大范围下的正常机动也会被误判为发散。
+     */
+    void setCurriculum(double target_range, double abort_radius);
+
+    [[nodiscard]] double targetRange() const { return _cfg.target_range; }
+    [[nodiscard]] double abortRadius() const { return _cfg.abort_radius; }
+
+    /**
      * @brief 把推力换算为归一化动作（HoverEnv::step 的逆映射）
      *
      * a_i = (thrust_i - hover_i) / (thrust_scale * m * g)，并限幅到 [-1,1]。
@@ -139,6 +161,8 @@ class HoverEnv {
 
     int _steps_per_episode = 0;
     int _step_index = 0;
+    int _in_band_steps = 0;   ///< 当前连续处于容差带内的步数
+    bool _ever_held = false;  ///< 本回合是否曾经连续稳定悬停
     double _last_pos_error = 0.0;
 
     // 当前回合的目标位置（NED，米）；状态直接取自 _sim

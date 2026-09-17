@@ -73,9 +73,16 @@ std::vector<float> HoverEnv::reset() {
                                    static_cast<float>(p0[2])),
                           makeVec3(0.0f, 0.0f, 0.0f)});
     _step_index = 0;
+    _in_band_steps = 0;
+    _ever_held = false;
     _last_pos_error = 0.0;
 
     return makeObservation(_target[0] - p0[0], _target[1] - p0[1], _target[2] - p0[2]);
+}
+
+void HoverEnv::setCurriculum(double target_range, double abort_radius) {
+    _cfg.target_range = std::max(1e-3, target_range);
+    _cfg.abort_radius = std::max(_cfg.target_range * 2.0, abort_radius);
 }
 
 std::array<float, 3> HoverEnv::thrustToAction(const std::array<double, 3> &thrust) const {
@@ -137,11 +144,20 @@ HoverEnv::StepResult HoverEnv::step(const std::array<float, 3> &action) {
     const double speed = std::sqrt(vel2);
     _last_pos_error = pos_error;
 
+    // 连续在带计数：成功 = 回合内曾经连续稳定悬停，而非结束时刻恰好合格
+    if (pos_error < _cfg.success_tolerance && speed < _cfg.success_speed) {
+        ++_in_band_steps;
+    } else {
+        _in_band_steps = 0;
+    }
+    if (_in_band_steps >= _cfg.success_hold_steps) {
+        _ever_held = true;
+    }
+
     ++_step_index;
     const bool out_of_bounds = pos_error > _cfg.abort_radius;
     result.done = out_of_bounds || (_step_index >= _steps_per_episode);
-    result.success = result.done && !out_of_bounds &&
-                     pos_error < _cfg.success_tolerance && speed < _cfg.success_speed;
+    result.success = result.done && !out_of_bounds && _ever_held;
     if (out_of_bounds) {
         result.reward -= static_cast<float>(_cfg.abort_penalty);
     }

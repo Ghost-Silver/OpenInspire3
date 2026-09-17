@@ -35,6 +35,14 @@ Tensor makeObsTensor(const std::vector<float> &obs) {
 /// 从合理工作点开始。缩小后初始策略近似「保持悬停」。
 constexpr float kPolicyOutputScale = 0.01f;
 
+/// log_std 的允许区间
+///
+/// 必须设下界：策略损失会把 log_std 往小推，标准差趋零后 z = (a-μ)/σ 迅速
+/// 变大，z² 更大，链路形成正反馈并最终产生 NaN；一旦出现 NaN，参数再也无法
+/// 恢复。上界则防止采样噪声淹没信号、并避免 exp 溢出。
+constexpr float kLogStdMin = -3.0f;
+constexpr float kLogStdMax = 1.0f;
+
 /// He 风格初始化：CTorch 的 rand() 为 U[0,1)（均值 0.5），先平移再按 fan_in 缩放
 void initHeWeight(Tensor &w, std::size_t fan_in) {
     w.rand();
@@ -129,11 +137,9 @@ std::tuple<Tensor, Tensor> ContinuousPPO::forward(const Tensor &obs) {
 }
 
 Tensor ContinuousPPO::logProbFrom(const Tensor &mean, const std::array<float, 3> &action) {
-    // 必须用引用绑定参数：写成 `const Tensor log_std = _params[LOG_STD];` 会触发
-    // 拷贝构造，副本的 autograd 节点被替换为新建 GradAccumulator，与真实参数
-    // 断开——表现为该参数的梯度恒为零、永远不更新（探索幅度因此完全学不动）。
-    const Tensor &log_std = _params[LOG_STD];
-    const Tensor std_t = log_std.exp();
+    // 限幅后使用：训练与采样必须采用同一个有效标准差，否则新旧策略的对数概率
+    // 不可比，ratio 会失真
+    const Tensor std_t = _params[LOG_STD].clamp(kLogStdMin, kLogStdMax).exp();
 
     // 采样得到的动作作为常量参与计算：策略梯度来自 log π 对 μ 与 σ 的偏导，
     // 不需要穿过「采样」这一步本身，故动作张量是叶子常量。
@@ -159,7 +165,8 @@ ActionSample ContinuousPPO::selectAction(const std::vector<float> &obs) {
     AutoGrad::EnableGrad = saved;
 
     const float *mu = mean.data<float>();
-    const float *log_std = _params[LOG_STD].data<float>();
+    const Tensor effective_log_std = _params[LOG_STD].clamp(kLogStdMin, kLogStdMax);
+    const float *log_std = effective_log_std.data<float>();
 
     ActionSample sample;
     double log_prob_sum = 0.0;
@@ -198,12 +205,44 @@ void ContinuousPPO::store(const Transition &transition) {
 }
 
 float ContinuousPPO::meanLogStd() const {
-    const float *ls = _params[LOG_STD].data<float>();
+    const Tensor effective = _params[LOG_STD].clamp(kLogStdMin, kLogStdMax);
+    const float *ls = effective.data<float>();
     float sum = 0.0f;
     for (int i = 0; i < _cfg.action_dim; ++i) {
         sum += ls[i];
     }
     return sum / static_cast<float>(_cfg.action_dim);
+}
+
+void ContinuousPPO::clipGradients(float max_norm) {
+    float total = 0.0f;
+    for (auto &p : _params) {
+        const float *gp = p.grad_ptr();
+        if (gp == nullptr) {
+            continue;
+        }
+        const std::size_t n = p.numel();
+        for (std::size_t i = 0; i < n; ++i) {
+            total += gp[i] * gp[i];
+        }
+    }
+
+    const float norm = std::sqrt(total);
+    if (!(norm > max_norm)) { // 同时排除 NaN
+        return;
+    }
+
+    const float scale = max_norm / (norm + 1e-6f);
+    for (auto &p : _params) {
+        float *gp = p.grad_ptr();
+        if (gp == nullptr) {
+            continue;
+        }
+        const std::size_t n = p.numel();
+        for (std::size_t i = 0; i < n; ++i) {
+            gp[i] *= scale;
+        }
+    }
 }
 
 void ContinuousPPO::clearBuffer() {
@@ -217,6 +256,10 @@ void ContinuousPPO::zeroGrad() {
 }
 
 void ContinuousPPO::sgdStep() {
+    // 先裁剪梯度范数：任何一次异常大的梯度都可能把 log_std 推到边界之外或
+    // 产生 NaN，而 NaN 一旦进入参数就再也无法恢复
+    clipGradients(1.0f);
+
     // 原地写入更新，与 CTorch mnist 的 sgd_step 一致。
     // 不能用 `p = p - lr*g`：移动赋值会把计算图节点搬进参数槽位，
     // 参数不再是带 GradAccumulator 的叶子张量，图结构逐轮膨胀。
@@ -321,8 +364,9 @@ void ContinuousPPO::update() {
                 value_loss = value_loss + (ret_t - value).square().mean();
             }
 
-            const Tensor total_loss = policy_loss + value_loss * _cfg.value_coef -
-                                      _params[LOG_STD].sum() * _cfg.entropy_coef;
+            const Tensor total_loss =
+                policy_loss + value_loss * _cfg.value_coef -
+                _params[LOG_STD].clamp(kLogStdMin, kLogStdMax).sum() * _cfg.entropy_coef;
             AutoGrad::backward(total_loss.getRelatedNode(), false);
             sgdStep();
         }

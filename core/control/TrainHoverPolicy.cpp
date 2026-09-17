@@ -102,12 +102,14 @@ int main(int argc, char **argv) {
     env_cfg.plant.mass = 1.0;
     env_cfg.plant.gravity = 9.81;
     env_cfg.plant.drag_coeff = 0.3;
-    env_cfg.plant.max_thrust = 12.0; // 约 1.2 倍悬停推力
+    // 推重比约 2:1（真实四旋翼的常见水平）。此前设为 12 N 时推重比仅 1.22:1，
+    // 向上机动余量只剩 2.19 N 而向下有 4.9 N，动作空间严重不对称，
+    // 目标在上方时策略几乎无计可施。
+    env_cfg.plant.max_thrust = 20.0;
     env_cfg.episode_seconds = 2.0;
     env_cfg.control_decimation = 10; // 控制 100 Hz，仿真 1 kHz
-    // 动作范围收到半个 m*g：整机推力上限只有 1.2 倍悬停值，过大的动作范围
-    // 只会让早期探索频繁撞上限幅，白白浪费样本
-    env_cfg.thrust_scale = 0.5;
+    // 动作范围取 0.8 倍 m*g：与限幅（约 2 倍 m*g）共同界定可用的推力区间
+    env_cfg.thrust_scale = 0.8;
     // 奖励缩放到每步 O(0.1)：回合回报量级约数十，价值损失与策略损失尺度相当
     env_cfg.reward_scale = 0.1;
 
@@ -189,6 +191,12 @@ int main(int argc, char **argv) {
         }
 
         agent.update();
+
+        // 数值崩溃早停：log_std 一旦变成 NaN 就再也无法恢复，继续跑只是浪费算力
+        if (std::isnan(agent.meanLogStd())) {
+            std::cerr << "\n[中止] 参数出现 NaN，训练在第 " << (ep + 1) << " 回合终止\n";
+            return 2;
+        }
 
         if (success) {
             ++success_count;

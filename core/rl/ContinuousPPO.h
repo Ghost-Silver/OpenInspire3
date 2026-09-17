@@ -130,6 +130,8 @@ class ContinuousPPO {
     void initParameters();
     void zeroGrad();
     void sgdStep();
+    /// 按全局范数裁剪梯度（PPO 的标准稳定措施）
+    void clipGradients(float max_norm);
 
     PpoConfig _cfg;
     std::vector<Tensor> _params;

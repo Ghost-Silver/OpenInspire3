@@ -14,10 +14,22 @@
 namespace oi3 {
 
 /**
- * @brief 加速度 a = (F_gravity + thrust) / mass
+ * @brief 气动阻力 F_i = -drag_coeff * |v_i| * v_i
  *
- * @param vel   机体系速度 {3}（NED）。当前质点模型不含与速度相关的力
- *              （气动阻力、风扰等），该参数为后续扩展保留。
+ * 逐轴二次形式，不使用 sqrt，全部由 abs 与乘法构成，因而可微且数值稳定。
+ * drag_coeff <= 0 时返回零向量。
+ *
+ * @param vel 机体系速度 {3}（NED）
+ * @param cfg 仿真配置（读取 drag_coeff）
+ * @return 阻力 {3}（牛顿，NED）
+ */
+[[nodiscard]] Tensor dragForce(const Tensor &vel, const Config &cfg);
+
+/**
+ * @brief 加速度 a = (F_gravity + thrust + F_drag) / mass
+ *
+ * @param vel   机体系速度 {3}（NED）。用于计算速度相关阻力；当
+ *              `cfg.drag_coeff == 0` 时该项为零，退化为纯质点模型。
  * @param thrust 合推力 {3}（NED 系，牛顿）
  * @param cfg   仿真配置
  * @return 加速度 {3}，米/秒²
@@ -25,7 +37,7 @@ namespace oi3 {
  * **符号约定**：NED 系向下为正，重力矢量恒为 `[0, 0, +m*g]`。
  * 悬停时 `thrust[2] = -m*g`。
  *
- * **可微性**：只使用 Tensor 四则运算符，不触碰底层数据指针，
+ * **可微性**：只使用 Tensor 四则运算符与 abs，不触碰底层数据指针，
  * 因此 autograd 计算图完整，梯度可回传到 `thrust` 与 `vel`。
  */
 [[nodiscard]] Tensor droneAcceleration(const Tensor &vel, const Tensor &thrust,

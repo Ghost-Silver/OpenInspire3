@@ -9,16 +9,27 @@
 
 namespace oi3 {
 
-Tensor droneAcceleration(const Tensor &vel, const Tensor &thrust, const Config &cfg) {
-    // 当前质点模型不含速度相关力（气动阻力、风扰等），保留参数以便扩展。
-    (void)vel;
+Tensor dragForce(const Tensor &vel, const Config &cfg) {
+    // F_i = -k * |v_i| * v_i，逐轴二次形式，不含 sqrt
+    const Tensor abs_vel = vel.abs();
+    return (abs_vel * vel) * static_cast<float>(-cfg.drag_coeff);
+}
 
+Tensor droneAcceleration(const Tensor &vel, const Tensor &thrust, const Config &cfg) {
     // 重力：NED 系向下为正，故 down 分量为 +m*g
     const Tensor f_gravity =
         makeVec3(0.0f, 0.0f, static_cast<float>(cfg.mass * cfg.gravity));
 
-    // 合外力（后续可在此叠加气动阻力、风扰等）
-    const Tensor f_total = f_gravity + thrust;
+    // 合外力：先算重力与推力，再按需叠加阻力。
+    //
+    // 这里刻意不在无阻力时也做一次 `+ dragForce(...)`：虽然加上零向量在数值上
+    // 等价，但会多引入一个算子节点；更重要的是，任何「把张量先拷一份再拼装」的
+    // 写法都会因 Tensor 拷贝构造替换 autograd 节点而静默切断计算图
+    // （Test 4 / Test 5 的梯度回归正是为此设置）。
+    Tensor f_total = f_gravity + thrust;
+    if (cfg.drag_coeff > 0.0) {
+        f_total = f_total + dragForce(vel, cfg);
+    }
 
     // 牛顿第二定律：a = F / m
     return f_total / static_cast<float>(cfg.mass);

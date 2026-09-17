@@ -17,7 +17,18 @@ DroneSimulator::DroneSimulator(Config config, DroneState initial_state)
     : _config(config), _state(std::move(initial_state)) {}
 
 void DroneSimulator::step(const Tensor &thrust) {
-    _state = rk4StepDrone(_state, thrust, _config, _config.dt);
+    // 执行器饱和发生在推力作用于机体之前，故在积分前限幅。
+    //
+    // 限幅按分支写成两条互斥路径，而不是先构造一个 `Tensor limited = thrust;`
+    // 再判断——那是一次拷贝构造，会把 limited 的 autograd 节点替换成新建的
+    // GradAccumulator，与上游就此断开：前向数值完全正确，但梯度恒为零。
+    // 因此「不需要限幅」这条路径必须原样传递引用，不做任何张量拷贝。
+    if (_config.max_thrust > 0.0) {
+        const float limit = static_cast<float>(_config.max_thrust);
+        _state = rk4StepDrone(_state, thrust.clamp(-limit, limit), _config, _config.dt);
+    } else {
+        _state = rk4StepDrone(_state, thrust, _config, _config.dt);
+    }
     _time += _config.dt;
     ++_step_count;
 }

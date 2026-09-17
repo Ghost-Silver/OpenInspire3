@@ -27,6 +27,8 @@ add_library(oi3_simulator STATIC
         core/simulator/PhysicsEngine/DroneDynamics.cpp
         core/simulator/PhysicsEngine/DroneSimulator.cpp
         core/simulator/PhysicsEngine/TensorUtils.cpp
+        core/control/PidController.cpp
+        core/control/ClosedLoop.cpp
         core/Map/VoxelMap.cpp
 )
 
@@ -34,6 +36,7 @@ target_include_directories(oi3_simulator PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/core/CTorch/include
         ${CMAKE_CURRENT_SOURCE_DIR}/core/simulator/PhysicsEngine
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/control
         ${CMAKE_CURRENT_SOURCE_DIR}/core/Map
 )
 
@@ -59,6 +62,15 @@ target_link_libraries(test_sim PRIVATE oi3_simulator)
 
 enable_testing()
 add_test(NAME sim_regression COMMAND test_sim)
+
+# ---------------------------------------------------------------------------
+# 闭环控制：控制器输出推力 -> 真实动力学积分 -> 状态回馈
+# 控制器为可替换部件，PID 是第一个实现，也是后续学习型控制器的对照基线。
+# ---------------------------------------------------------------------------
+add_executable(PidHoverTest core/control/PidHoverTest.cpp)
+target_compile_options(PidHoverTest PRIVATE -Wall -Wextra)
+target_link_libraries(PidHoverTest PRIVATE oi3_simulator)
+add_test(NAME pid_hover COMMAND PidHoverTest)
 
 # ===========================================================================
 # core/rl/ —— 强化学习栈（搜索环境 / EnvManager / PPO / AM-MAPPO / 贪心基线）

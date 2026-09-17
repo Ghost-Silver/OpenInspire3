@@ -162,12 +162,15 @@ int main(int argc, char **argv) {
     int success_count = 0;
     double recent_reward = 0.0;
     int recent_count = 0;
+    double sample_seconds = 0.0;
+    double update_seconds = 0.0;
 
     for (int ep = 0; ep < episodes; ++ep) {
         std::vector<float> obs = env.reset();
         double episode_reward = 0.0;
         bool success = false;
 
+        const auto sample_begin = std::chrono::steady_clock::now();
         for (int t = 0; t < env.stepsPerEpisode(); ++t) {
             const rl::ActionSample sample = agent.selectAction(obs);
             const HoverEnv::StepResult result = env.step(sample.action);
@@ -189,8 +192,15 @@ int main(int argc, char **argv) {
                 break;
             }
         }
+        const auto sample_end = std::chrono::steady_clock::now();
+        sample_seconds +=
+            std::chrono::duration<double>(sample_end - sample_begin).count();
 
+        const auto update_begin = std::chrono::steady_clock::now();
         agent.update();
+        const auto update_end = std::chrono::steady_clock::now();
+        update_seconds +=
+            std::chrono::duration<double>(update_end - update_begin).count();
 
         // 数值崩溃早停：log_std 一旦变成 NaN 就再也无法恢复，继续跑只是浪费算力
         if (std::isnan(agent.meanLogStd())) {
@@ -221,6 +231,11 @@ int main(int argc, char **argv) {
         std::chrono::duration_cast<std::chrono::seconds>(train_end - train_start).count();
     std::cout << "\n训练用时 " << train_seconds << " s，最终到位率 "
               << (100.0 * success_count / episodes) << "%\n";
+    std::cout << "耗时分解: 采样 " << sample_seconds << " s ("
+              << (100.0 * sample_seconds / (sample_seconds + update_seconds))
+              << "%)，参数更新 " << update_seconds << " s ("
+              << (100.0 * update_seconds / (sample_seconds + update_seconds))
+              << "%)" << std::endl;
 
     // ---- 评估：与 PID 在同一任务、同一指标下对比 ----
     printHeading("闭环对比评估");

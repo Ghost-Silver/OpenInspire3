@@ -28,6 +28,7 @@ add_library(oi3_simulator STATIC
         core/simulator/PhysicsEngine/DroneSimulator.cpp
         core/simulator/PhysicsEngine/TensorUtils.cpp
         core/simulator/PhysicsEngine/SixDofDynamics.cpp
+        core/simulator/PhysicsEngine/SixDofDynamicsDiff.cpp
         core/simulator/PhysicsEngine/SixDofSimulator.cpp
         core/control/PidController.cpp
         core/control/SixDofPidController.cpp
@@ -83,6 +84,11 @@ add_executable(SixDofHoverTest core/control/SixDofHoverTest.cpp)
 target_compile_options(SixDofHoverTest PRIVATE -Wall -Wextra)
 target_link_libraries(SixDofHoverTest PRIVATE oi3_simulator)
 add_test(NAME six_dof_hover COMMAND SixDofHoverTest)
+
+add_executable(SixDofGradTest core/simulator/PhysicsEngine/SixDofGradTest.cpp)
+target_compile_options(SixDofGradTest PRIVATE -Wall -Wextra)
+target_link_libraries(SixDofGradTest PRIVATE oi3_simulator)
+add_test(NAME six_dof_grad COMMAND SixDofGradTest)
 
 # 神经网络飞控训练：连续 PPO 学习定点悬停，并与 PID 在同一指标下对比。
 # 训练耗时随回合数增长，默认不加入 ctest（可用 --episodes 调整）。

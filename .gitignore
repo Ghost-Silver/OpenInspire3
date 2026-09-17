@@ -10,3 +10,6 @@ Makefile
 # 打包备份：OI3.tar.gz（约 90MB）已存在于仓库历史中，此处仅防止新增
 *.tar.gz
 *.zip
+
+# AddressSanitizer 构建目录（本地诊断用）
+build-asan/

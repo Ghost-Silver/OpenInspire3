@@ -51,6 +51,9 @@ struct PpoConfig {
     /// 梯度方向。缺少熵项时，探索幅度只会被策略损失挤压而单调收缩，早期若
     /// 探索不够便再也走不出次优解。
     float entropy_coef = 0.01f;
+    /// 是否允许训练 log_std。置 false 时冻结探索幅度，用于区分
+    /// 「探索噪声过大」与「梯度估计有误」两类问题
+    bool train_log_std = true;
 };
 
 /// 单条经验
@@ -85,6 +88,10 @@ struct UpdateStats {
     float mean_return = 0.0f;
     float mean_value = 0.0f;
     float grad_norm = 0.0f; ///< 最近一次裁剪前的全局梯度范数
+    float ratio_mean = 0.0f;  ///< 概率比率均值（第 0 轮应接近 1）
+    float ratio_max = 0.0f;   ///< 概率比率最大值
+    float logp_first = 0.0f;  ///< 首次更新时重算的 log_prob 均值
+    float oldlogp_first = 0.0f; ///< 首次更新时记录的旧 log_prob 均值
 };
 
 /**

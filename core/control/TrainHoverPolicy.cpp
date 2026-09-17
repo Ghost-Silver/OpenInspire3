@@ -98,6 +98,13 @@ int main(int argc, char **argv) {
 
     // ---- 被控对象：带阻力与推力限幅，非线性且受限 ----
     HoverEnvConfig env_cfg;
+    // 课程学习的第一档：目标与初始位置都限制在小范围内。
+    // 直接用它去学 ±1.5m 的随机目标时，随机初始化策略几乎每回合都撞发散边界，
+    // 所有样本的回报趋于一致、优势失去区分度，PPO 无从下手。先在小范围内
+    // 产生「成功」样本，再逐步扩大范围。
+    env_cfg.target_range = 0.3;
+    env_cfg.start_range = 0.05;
+    env_cfg.abort_radius = 2.0;
     env_cfg.plant.dt = 0.001;
     env_cfg.plant.mass = 1.0;
     env_cfg.plant.gravity = 9.81;
@@ -110,17 +117,29 @@ int main(int argc, char **argv) {
     env_cfg.control_decimation = 10; // 控制 100 Hz，仿真 1 kHz
     // 动作范围取 0.8 倍 m*g：与限幅（约 2 倍 m*g）共同界定可用的推力区间
     env_cfg.thrust_scale = 0.8;
-    // 奖励缩放到每步 O(0.1)：回合回报量级约数十，价值损失与策略损失尺度相当
-    env_cfg.reward_scale = 0.1;
+    // 奖励缩放。关键在于：策略损失因优势被标准化而与奖励尺度无关，但价值损失
+    // 正比于回报的平方 —— 回合回报越大，价值侧梯度越会通过共享主干淹没策略侧。
+    // 实测 reward_scale=0.1 时回合回报约 -45，value_loss 达 2000 量级，而
+    // policy_loss 只有 0.05，主干实际在拟合价值函数而非策略特征。
+    // 取 0.01 把回报压到个位数，两者尺度才可比。
+    env_cfg.reward_scale = 0.01;
 
     rl::PpoConfig ppo_cfg;
     ppo_cfg.obs_dim = HoverEnv::kObsDim;
     ppo_cfg.action_dim = HoverEnv::kActionDim;
     ppo_cfg.hidden_dim = 64;
-    ppo_cfg.learning_rate = 1e-3f;
+    // 高斯策略的梯度含 1/σ 因子：σ 越小梯度越大。σ=0.05 时被放大 20 倍，
+    // 配合 1e-3 学习率会一步就把策略推飞（实测 approx_kl 达 32）。
+    ppo_cfg.learning_rate = 3e-4f;
     ppo_cfg.update_epochs = 4;
     ppo_cfg.batch_size = 64;
-    ppo_cfg.init_log_std = -0.5f; // 初始 std ≈ 0.61，保证早期探索能覆盖有效动作区间
+    // 初始 std ≈ 0.22。参照 PID 的实测动作幅值（|a| 均值仅 0.073），探索噪声若
+    // 远大于信号本身，策略梯度会被噪声淹没；早期用 -0.5（std 0.61）时正是如此。
+    ppo_cfg.init_log_std = -0.5f; // std ≈ 0.61，标准探索幅度
+    // 去掉熵奖励：高斯策略下熵项是恒定推高 log_std 的力，会阻止策略收窄探索，
+    // 实测 log_std 由 -0.5 一路涨到 -0.36、策略越来越随机，回报随之恶化。
+    ppo_cfg.entropy_coef = 0.001f;
+    ppo_cfg.train_log_std = true;
 
     printHeading("OpenInspire3 神经网络飞控训练（定点悬停）");
     std::cout << std::fixed << std::setprecision(4);
@@ -141,11 +160,14 @@ int main(int argc, char **argv) {
     HoverEnv env(env_cfg, 42u);
     rl::ContinuousPPO agent(ppo_cfg, 12345u);
 
+    // 评估任务必须落在训练分布内（target_range = 0.3）。
+    // 此前用 (0.8, -0.6, -0.9)（误差 1.35m）评估在 ±0.3m 上训练的策略，
+    // 属于分布外测试，结果自然发散，并曾据此误判为「策略没学会」。
     FlightTask task;
-    task.name = "定点悬停 (0,0,0) -> (0.8, -0.6, -0.9)";
+    task.name = "定点悬停 (0,0,0) -> (0.2, -0.15, -0.2)";
     task.initial_pos = makeVec3(0.0f, 0.0f, 0.0f);
     task.initial_vel = makeVec3(0.0f, 0.0f, 0.0f);
-    task.target = makeVec3(0.8f, -0.6f, -0.9f);
+    task.target = makeVec3(0.2f, -0.15f, -0.2f);
     task.duration = 5.0;
     task.tolerance = 0.05;
 
@@ -154,6 +176,40 @@ int main(int argc, char **argv) {
         NeuralController initial_policy(agent, env_cfg);
         const FlightTrace trace = runClosedLoop(env_cfg.plant, task, initial_policy);
         printMetrics(task, initial_policy, evaluateTrace(task, trace));
+    }
+
+    // ---- 行为克隆预热：把策略校准到「维持悬停」这个工作点 ----
+    //
+    // 随机初始化时，ReLU 输出非负（均值约 0.5 而非 0），即使权重零均值，策略
+    // 动作也会带有约 ±0.7 的标准差，折算成 ±5.5 N 的持续推力偏置 —— 无人机两秒
+    // 内就会漂出发散边界。此时所有回合的奖励完全相同（都撞边界），优势失去区分度，
+    // PPO 无从学习。
+    //
+    // 先用零动作做一段监督学习，把策略初始化到「输出悬停推力」，既避免上述问题，
+    // 又不牺牲输出层权重尺度（缩权重会掐断隐层梯度，见 ContinuousPPO 中的说明）。
+    {
+        std::vector<std::vector<float>> warmup_obs;
+        std::vector<std::array<float, 3>> warmup_act;
+        const int warmup_samples = 256;
+        warmup_obs.reserve(warmup_samples);
+        warmup_act.reserve(warmup_samples);
+
+        HoverEnv warm_env(env_cfg, 1234u);
+        std::vector<float> o = warm_env.reset();
+        for (int i = 0; i < warmup_samples; ++i) {
+            warmup_obs.push_back(o);
+            warmup_act.push_back({0.0f, 0.0f, 0.0f});
+            o = warm_env.step({0.0f, 0.0f, 0.0f}).obs;
+        }
+
+        std::cout << "\n行为克隆预热（目标：输出零动作 = 维持悬停）...\n";
+        for (int i = 0; i < 400; ++i) {
+            const float loss = agent.behaviorCloneStep(warmup_obs, warmup_act);
+            if ((i + 1) % 100 == 0) {
+                std::cout << "  预热 step " << (i + 1) << "  MSE " << loss << std::endl;
+            }
+        }
+        std::cout << "预热后策略动作均值应接近 0。" << std::endl;
     }
 
     printHeading("训练");
@@ -231,7 +287,11 @@ int main(int argc, char **argv) {
                 std::cout << "          mean_return " << std::setw(10) << s.mean_return
                           << " | mean_value " << std::setw(10) << s.mean_value
                           << " | mean_advantage " << s.mean_advantage
-                          << " | grad_norm " << s.grad_norm << std::endl;
+                          << " | grad_norm " << s.grad_norm << "\n"
+                          << "          ratio_mean " << s.ratio_mean
+                          << " | ratio_max " << s.ratio_max
+                          << " | logp_first " << s.logp_first
+                          << " | oldlogp_first " << s.oldlogp_first << std::endl;
             }
             recent_reward = 0.0;
             recent_count = 0;
@@ -248,6 +308,36 @@ int main(int argc, char **argv) {
               << "%)，参数更新 " << update_seconds << " s ("
               << (100.0 * update_seconds / (sample_seconds + update_seconds))
               << "%)" << std::endl;
+
+    // ---- 参照：用 PID 在同一环境下跑出平均回报 ----
+    // 这是判断奖励设计是否与控制目标一致的基准。若 PID（已知能把误差压到毫米级）
+    // 的环境回报反而不高于未经训练的策略，说明奖励函数本身没有在奖励「朝目标飞」，
+    // 那样无论怎么调 PPO 都学不出来。
+    {
+        HoverEnv ref_env(env_cfg, 7u);
+        PidController ref_pid(env_cfg.plant);
+        double pid_return = 0.0;
+        const int ref_episodes = 20;
+
+        for (int ep = 0; ep < ref_episodes; ++ep) {
+            std::vector<float> obs = ref_env.reset();
+            for (int t = 0; t < ref_env.stepsPerEpisode(); ++t) {
+                const std::array<float, 3> tgt = ref_env.target();
+                const Tensor thrust = ref_pid.computeThrust(
+                    ref_env.state(), makeVec3(tgt[0], tgt[1], tgt[2]), 0.0);
+                const std::vector<float> tf = toVector(thrust);
+                const HoverEnv::StepResult r =
+                    ref_env.step(ref_env.thrustToAction({tf[0], tf[1], tf[2]}));
+                pid_return += r.reward;
+                if (r.done) {
+                    break;
+                }
+            }
+        }
+        std::cout << "\n参照：PID 在该环境下的平均回合回报 = "
+                  << (pid_return / ref_episodes)
+                  << "（对比训练日志中的策略回报）" << std::endl;
+    }
 
     // ---- 评估：与 PID 在同一任务、同一指标下对比 ----
     printHeading("闭环对比评估");

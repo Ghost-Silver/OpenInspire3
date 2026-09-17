@@ -393,7 +393,11 @@ float ContinuousPPO::sgdStep() {
     // 不能用 `p = p - lr*g`：移动赋值会把计算图节点搬进参数槽位，
     // 参数不再是带 GradAccumulator 的叶子张量，图结构逐轮膨胀。
     _last_params_with_grad = 0;
-    for (auto &p : _params) {
+    for (std::size_t pi = 0; pi < _params.size(); ++pi) {
+        auto &p = _params[pi];
+        if (pi == LOG_STD && !_cfg.train_log_std) {
+            continue; // 冻结探索幅度
+        }
         float *gp = p.grad_ptr();
         if (gp == nullptr) {
             continue;
@@ -494,6 +498,18 @@ void ContinuousPPO::update() {
             const Tensor log_p = (z.square() * -0.5f - std_t.log()).sum(1); // [B]
 
             const Tensor ratio = (log_p - old_log_p).exp();
+
+            // 诊断：首轮（epoch 0 的第一个 minibatch）重算的 log_prob 应与采样时
+            // 记录的旧值一致，ratio 应接近 1
+            if (epoch == 0 && begin == 0) {
+                stats.logp_first = log_p.mean().data<float>()[0];
+                stats.oldlogp_first = old_log_p.mean().data<float>()[0];
+            }
+            {
+                const float rm = ratio.mean().data<float>()[0];
+                stats.ratio_mean += rm;
+                stats.ratio_max = std::max(stats.ratio_max, ratio.max().data<float>()[0]);
+            }
             const Tensor clipped =
                 ratio.clamp(1.0f - _cfg.clip_epsilon, 1.0f + _cfg.clip_epsilon);
 
@@ -528,6 +544,7 @@ void ContinuousPPO::update() {
         stats.entropy *= inv;
         stats.approx_kl *= inv;
         stats.grad_norm *= inv;
+        stats.ratio_mean *= inv;
     }
     {
         double adv_sum = 0.0;

@@ -266,7 +266,7 @@ float ContinuousPPO::meanLogStd() const {
     return sum / static_cast<float>(_cfg.action_dim);
 }
 
-void ContinuousPPO::clipGradients(float max_norm) {
+float ContinuousPPO::clipGradients(float max_norm) {
     float total = 0.0f;
     for (auto &p : _params) {
         const float *gp = p.grad_ptr();
@@ -281,7 +281,7 @@ void ContinuousPPO::clipGradients(float max_norm) {
 
     const float norm = std::sqrt(total);
     if (!(norm > max_norm)) { // 同时排除 NaN
-        return;
+        return norm;
     }
 
     const float scale = max_norm / (norm + 1e-6f);
@@ -295,6 +295,7 @@ void ContinuousPPO::clipGradients(float max_norm) {
             gp[i] *= scale;
         }
     }
+    return norm;
 }
 
 void ContinuousPPO::clearBuffer() {
@@ -307,10 +308,15 @@ void ContinuousPPO::zeroGrad() {
     }
 }
 
-void ContinuousPPO::sgdStep() {
+float ContinuousPPO::sgdStep() {
     // 先裁剪梯度范数：任何一次异常大的梯度都可能把 log_std 推到边界之外或
-    // 产生 NaN，而 NaN 一旦进入参数就再也无法恢复
-    clipGradients(1.0f);
+    // 产生 NaN，而 NaN 一旦进入参数就再也无法恢复。
+    //
+    // 注意阈值取得较大（1e6）：这是一个防爆阈值而非"训练用的裁剪"。全局范数
+    // 会被价值损失主导（其量级远大于策略损失），若按常规的 1.0 裁剪，整组梯度
+    // 会被等比缩小，策略侧本就微弱的梯度会被一并抹掉 —— 表现为 approx_kl 恒为
+    // 0、策略完全不更新。
+    const float grad_norm = clipGradients(1e6f);
 
     // 原地写入更新，与 CTorch mnist 的 sgd_step 一致。
     // 不能用 `p = p - lr*g`：移动赋值会把计算图节点搬进参数槽位，
@@ -326,6 +332,7 @@ void ContinuousPPO::sgdStep() {
             pp[i] -= gp[i] * _cfg.learning_rate;
         }
     }
+    return grad_norm;
 }
 
 void ContinuousPPO::update() {
@@ -384,6 +391,9 @@ void ContinuousPPO::update() {
     // 经验都要走一遍完整的算子调度。实测该路径下训练耗时的 99% 花在参数更新上
     // （采样不到 1%）。改为把整个 minibatch 组装成 [B, obs_dim] 一次前向、一次
     // 反传，调用次数与图节点数同时下降近 B 倍。
+    UpdateStats stats;
+    int stat_batches = 0;
+
     const std::size_t obs_dim = static_cast<std::size_t>(_cfg.obs_dim);
     const std::size_t act_dim = static_cast<std::size_t>(_cfg.action_dim);
     const auto batch = std::min(n, static_cast<std::size_t>(std::max(1, _cfg.batch_size)));
@@ -426,9 +436,40 @@ void ContinuousPPO::update() {
                 policy_loss + value_loss * _cfg.value_coef - entropy * _cfg.entropy_coef;
 
             AutoGrad::backward(total_loss.getRelatedNode(), false);
-            sgdStep();
+            const float step_grad_norm = sgdStep();
+
+            stats.policy_loss += policy_loss.data<float>()[0];
+            stats.value_loss += value_loss.data<float>()[0];
+            stats.entropy += entropy.data<float>()[0];
+            stats.grad_norm += step_grad_norm;
+            // 近似 KL：E[log π_old - log π_new]，即一次更新后策略分布移动了多少
+            stats.approx_kl += (old_log_p - log_p).mean().data<float>()[0];
+            ++stat_batches;
         }
     }
+
+    if (stat_batches > 0) {
+        const float inv = 1.0f / static_cast<float>(stat_batches);
+        stats.policy_loss *= inv;
+        stats.value_loss *= inv;
+        stats.entropy *= inv;
+        stats.approx_kl *= inv;
+        stats.grad_norm *= inv;
+    }
+    {
+        double adv_sum = 0.0;
+        double ret_sum = 0.0;
+        double val_sum = 0.0;
+        for (std::size_t i = 0; i < n; ++i) {
+            adv_sum += advantages[i];
+            ret_sum += returns[i];
+            val_sum += _buffer[i].value;
+        }
+        stats.mean_advantage = static_cast<float>(adv_sum / static_cast<double>(n));
+        stats.mean_return = static_cast<float>(ret_sum / static_cast<double>(n));
+        stats.mean_value = static_cast<float>(val_sum / static_cast<double>(n));
+    }
+    _last_stats = stats;
 
     _buffer.clear();
 }

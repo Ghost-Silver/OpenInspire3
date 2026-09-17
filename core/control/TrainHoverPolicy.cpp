@@ -117,7 +117,7 @@ int main(int argc, char **argv) {
     ppo_cfg.obs_dim = HoverEnv::kObsDim;
     ppo_cfg.action_dim = HoverEnv::kActionDim;
     ppo_cfg.hidden_dim = 64;
-    ppo_cfg.learning_rate = 3e-4f;
+    ppo_cfg.learning_rate = 1e-3f;
     ppo_cfg.update_epochs = 4;
     ppo_cfg.batch_size = 64;
     ppo_cfg.init_log_std = -0.5f; // 初始 std ≈ 0.61，保证早期探索能覆盖有效动作区间
@@ -221,6 +221,18 @@ int main(int argc, char **argv) {
                       << std::setw(6) << (100.0 * success_count / (ep + 1)) << "%"
                       << " | 末端误差 " << std::setw(8) << env.lastPositionError()
                       << " m | log_std " << std::setw(8) << agent.meanLogStd() << "\n";
+
+            if ((ep + 1) % 50 == 0) {
+                const rl::UpdateStats &s = agent.lastStats();
+                std::cout << "          policy_loss " << std::setw(10) << s.policy_loss
+                          << " | value_loss " << std::setw(12) << s.value_loss
+                          << " | approx_kl " << std::setw(10) << s.approx_kl
+                          << " | entropy " << s.entropy << "\n";
+                std::cout << "          mean_return " << std::setw(10) << s.mean_return
+                          << " | mean_value " << std::setw(10) << s.mean_value
+                          << " | mean_advantage " << s.mean_advantage
+                          << " | grad_norm " << s.grad_norm << std::endl;
+            }
             recent_reward = 0.0;
             recent_count = 0;
         }

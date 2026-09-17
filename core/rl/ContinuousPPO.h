@@ -70,6 +70,23 @@ struct ActionSample {
     float value = 0.0f;
 };
 
+/// 一次 update 结束后的统计量（诊断用）
+///
+/// 这些量是判断 PPO 是否在有效更新的基本依据：approx_kl 过大说明步长过大
+/// 或数据复用过度；clip_fraction 长期为 0 说明裁剪从未生效（ratio 始终在带内，
+/// 更新可能过小）；mean_advantage 为 0 说明优势估计失去区分度。
+struct UpdateStats {
+    float policy_loss = 0.0f;
+    float value_loss = 0.0f;
+    float entropy = 0.0f;
+    float approx_kl = 0.0f;
+    float clip_fraction = 0.0f;
+    float mean_advantage = 0.0f;
+    float mean_return = 0.0f;
+    float mean_value = 0.0f;
+    float grad_norm = 0.0f; ///< 最近一次裁剪前的全局梯度范数
+};
+
 /**
  * @class ContinuousPPO
  * @brief 连续动作 PPO 智能体
@@ -105,6 +122,9 @@ class ContinuousPPO {
     /// 当前 log_std 的均值（诊断用：观察探索幅度是否失控）
     [[nodiscard]] float meanLogStd() const;
 
+    /// 最近一次 update 的统计量
+    [[nodiscard]] const UpdateStats &lastStats() const { return _last_stats; }
+
   private:
     /// 参数在 _params 中的下标
     enum ParamIndex : std::size_t {
@@ -129,13 +149,15 @@ class ContinuousPPO {
 
     void initParameters();
     void zeroGrad();
-    void sgdStep();
-    /// 按全局范数裁剪梯度（PPO 的标准稳定措施）
-    void clipGradients(float max_norm);
+    /// 执行一步 SGD，返回裁剪前的全局梯度范数（诊断用）
+    float sgdStep();
+    /// 按全局范数裁剪梯度（PPO 的标准稳定措施），返回裁剪前的范数
+    float clipGradients(float max_norm);
 
     PpoConfig _cfg;
     std::vector<Tensor> _params;
     std::vector<Transition> _buffer;
+    UpdateStats _last_stats;
     std::mt19937 _rng;
     std::normal_distribution<float> _normal{0.0f, 1.0f};
 };

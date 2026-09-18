@@ -38,6 +38,7 @@ add_library(oi3_simulator STATIC
         core/control/SixDofPidController.cpp
         core/control/SixDofManualController.cpp
         core/control/MotorMixer.cpp
+        core/control/SpinningController.cpp
         core/control/ClosedLoop.cpp
         core/control/HoverEnv.cpp
         core/estimation/ImuModel.cpp
@@ -99,6 +100,11 @@ target_compile_options(EstimatorTest PRIVATE -Wall -Wextra)
 target_link_libraries(EstimatorTest PRIVATE oi3_simulator)
 
 # 轨迹跟踪能力实测：定点 PID 用于跟踪时的系统性滞后
+# 可控旋转容错：三电机维持倾角与高度
+add_executable(SpinningRecoveryTest core/control/SpinningRecoveryTest.cpp)
+target_compile_options(SpinningRecoveryTest PRIVATE -Wall -Wextra)
+target_link_libraries(SpinningRecoveryTest PRIVATE oi3_simulator)
+
 # 单电机失效：混控矩阵可控性分析与失控实测
 add_executable(MotorFailureTest core/control/MotorFailureTest.cpp)
 target_compile_options(MotorFailureTest PRIVATE -Wall -Wextra)

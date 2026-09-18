@@ -281,7 +281,10 @@ int main() {
 
             MotorSet motors;
             motors.failed[0] = (t >= t_fail);
-            const SixDofCommand actual = mixer.apply(cmd, motors);
+            // redistribute = false：模拟飞控**没有**失效检测与重构逻辑。
+            // 此时剩余三个电机仍按四电机求解的结果分配，推力总量与力矩都错，
+            // 这是「容错缺位」的真实表现，也是本段要展示的对象。
+            const SixDofCommand actual = mixer.apply(cmd, motors, false);
             sim.step(actual.thrust_body, actual.torque);
 
             const std::array<double, 3> p = readVec(sim.state().pos);
@@ -487,12 +490,15 @@ int main() {
         checkTrue("悬停所需的竖直力在三电机可达范围内（前提是倾角不要太大）",
                   f0_needed <= fmax_total);
 
-        // 倾角上限：f0_needed = mg/cosθ <= 3·fmax  =>  θ <= acos(mg/(3·fmax))
-        const double cos_max = m * g / fmax_total;
+        // 倾角上限：这里同样要注意有效推力上限是 **2·fmax 而非 3·fmax**。
+        // 维持零力矩（τx = τy = 0）时三电机方程有唯一解 f2 = f4、f3 = 0，
+        // 即只有对角两个电机出力。故 cosθ ≥ mg/(2·fmax)。
+        const double cos_max = m * g / (2.0 * mc.max_thrust);
         if (cos_max < 1.0) {
             const double theta_max = std::acos(cos_max) * 180.0 / M_PI;
-            std::cout << "        最大可用倾角 " << std::setprecision(2) << theta_max
-                      << " deg（超过则竖直分量不足以维持高度）\n";
+            std::cout << "        零力矩状态下的最大可用倾角 " << std::setprecision(2)
+                      << theta_max << " deg（有效推力上限 2·f_max = " << (2.0 * mc.max_thrust)
+                      << " N，非三电机之和）\n";
         }
 
         // (e) 代价：旋转模式还剩多少水平机动能力

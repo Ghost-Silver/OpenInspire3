@@ -160,9 +160,16 @@ Tensor angularAcceleration(const Tensor &omega, const Tensor &torque,
     const double cy = w.z * iw[0] - w.x * iw[2];
     const double cz = w.x * iw[1] - w.y * iw[0];
 
-    return makeVec3(static_cast<float>((t.x - cx) / ix),
-                    static_cast<float>((t.y - cy) / iy),
-                    static_cast<float>((t.z - cz) / iz));
+    // 气动转动阻尼 τ = −k·ω。默认 0 时下面三项与改造前逐字相同，
+    // 因此既有结果逐位不变。
+    const double kd = cfg.rot_damping;
+    const double dx = kd * w.x;
+    const double dy = kd * w.y;
+    const double dz = kd * w.z;
+
+    return makeVec3(static_cast<float>((t.x - cx - dx) / ix),
+                    static_cast<float>((t.y - cy - dy) / iy),
+                    static_cast<float>((t.z - cz - dz) / iz));
 }
 
 Tensor quatDerivative(const Tensor &quat, const Tensor &omega) {

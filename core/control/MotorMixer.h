@@ -110,11 +110,26 @@ class QuadMixer {
     /**
      * @brief 控制指令 → 四电机推力
      *
-     * 用混控矩阵求逆，然后把结果限幅到 [min_thrust, max_thrust]。
-     * 限幅是**逐电机**的，因此当指令超出执行机构能力时，实际得到的推力与力矩
-     * 会偏离指令 —— 这个偏差由 unmix 如实反映出来。
+     * @param cmd          控制指令
+     * @param failed       失效标志
+     * @param redistribute 是否有容错重分配逻辑，见下
+     *
+     * @par redistribute 的含义（这是一个真实的工程分界）
+     *
+     * **false = 飞控没有容错逻辑**：仍按四个电机求解（4×4 逆），再把失效电机的
+     * 推力丢弃。后果是剩余电机的分配**完全错误** —— 正常悬停时每电机 2.45 N，
+     * 失效一个后剩三个各 2.45 N，总推力仅 7.36 N 而需要 9.81 N，飞行器直接坠落。
+     * 这是「没有做失效检测与重构」的真实表现。
+     *
+     * **true = 飞控检测到失效并重构**：改用剩余电机重新求解。此时只放弃不可达
+     * 的 τz，用 T、τx、τy 三行配三个健康电机求解 —— 该 3×3 子矩阵行列式为
+     * 4a² ≠ 0，**恰好可逆**，所以三个控制量仍能精确实现。
+     *
+     * 两种模式都有意义：前者是失效容错缺位时的对照，后者是容错接管后的行为。
      */
-    [[nodiscard]] MotorSet mix(const SixDofCommand &cmd) const;
+    [[nodiscard]] MotorSet mix(const SixDofCommand &cmd,
+                               const std::array<bool, 4> &failed = {},
+                               bool redistribute = true) const;
 
     /// 四电机推力 → 实际可实现的推力与力矩（不做任何限幅）
     [[nodiscard]] SixDofCommand unmix(const MotorSet &motors) const;
@@ -126,7 +141,8 @@ class QuadMixer {
      * @param motors 输入输出：更新为各电机实际推力（含失效）
      * @return 执行机构**真正实现**的推力与力矩
      */
-    [[nodiscard]] SixDofCommand apply(const SixDofCommand &cmd, MotorSet &motors) const;
+    [[nodiscard]] SixDofCommand apply(const SixDofCommand &cmd, MotorSet &motors,
+                                      bool redistribute = true) const;
 
     /// 混控矩阵 A：行 = [T, τx, τy, τz]，列 = 电机 1..4
     [[nodiscard]] const std::array<std::array<double, 4>, 4> &matrix() const { return _A; }

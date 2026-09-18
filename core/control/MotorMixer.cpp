@@ -142,6 +142,54 @@ bool invert4(const std::array<std::array<double, 4>, 4> &m,
     return true;
 }
 
+/// 3×3 求逆（用于失效后按剩余三电机重构分配）
+bool invert3(double m[3][3], double out[3][3]) {
+    double a[3][6];
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            a[i][j] = m[i][j];
+            a[i][j + 3] = (i == j) ? 1.0 : 0.0;
+        }
+    }
+    for (int c = 0; c < 3; ++c) {
+        int piv = -1;
+        for (int r = c; r < 3; ++r) {
+            if (std::fabs(a[r][c]) > kTol) {
+                piv = r;
+                break;
+            }
+        }
+        if (piv < 0) {
+            return false;
+        }
+        for (int j = 0; j < 6; ++j) {
+            std::swap(a[c][j], a[piv][j]);
+        }
+        const double p = a[c][c];
+        for (int j = 0; j < 6; ++j) {
+            a[c][j] /= p;
+        }
+        for (int r = 0; r < 3; ++r) {
+            if (r == c) {
+                continue;
+            }
+            const double f = a[r][c];
+            if (std::fabs(f) < kTol) {
+                continue;
+            }
+            for (int j = 0; j < 6; ++j) {
+                a[r][j] -= f * a[c][j];
+            }
+        }
+    }
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            out[i][j] = a[i][j + 3];
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 QuadMixer::QuadMixer(QuadMotorConfig cfg) : _cfg(cfg) {
@@ -164,7 +212,8 @@ QuadMixer::QuadMixer(QuadMotorConfig cfg) : _cfg(cfg) {
     invert4(_A, _Ainv);
 }
 
-MotorSet QuadMixer::mix(const SixDofCommand &cmd) const {
+MotorSet QuadMixer::mix(const SixDofCommand &cmd, const std::array<bool, 4> &failed,
+                         bool redistribute) const {
     double w[4] = {cmd.thrust_body, 0.0, 0.0, 0.0};
     if (cmd.torque.numel() == 3) {
         const float *tp = cmd.torque.data<float>();
@@ -174,6 +223,49 @@ MotorSet QuadMixer::mix(const SixDofCommand &cmd) const {
     }
 
     MotorSet out;
+    out.failed = failed;
+
+    // 统计健康电机
+    int healthy[4] = {0, 0, 0, 0};
+    int n_healthy = 0;
+    for (int i = 0; i < 4; ++i) {
+        if (!failed[static_cast<std::size_t>(i)]) {
+            healthy[n_healthy++] = i;
+        }
+    }
+
+    // 容错重分配：恰好剩三个健康电机时，用 T、τx、τy 三行重解。
+    // 放弃的是 τz —— 它本就不可独立指定。该 3×3 子矩阵行列式为 4a² ≠ 0，
+    // 所以三个控制量仍可精确实现，这与「按四电机求解再丢弃」有本质区别。
+    if (redistribute && n_healthy == 3) {
+        double B[3][3];
+        for (int r = 0; r < 3; ++r) {
+            for (int j = 0; j < 3; ++j) {
+                B[r][j] = _A[static_cast<std::size_t>(r)][static_cast<std::size_t>(healthy[j])];
+            }
+        }
+        double Binv[3][3];
+        if (invert3(B, Binv)) {
+            const double target[3] = {w[0], w[1], w[2]}; // T, τx, τy
+            for (int j = 0; j < 3; ++j) {
+                double f = 0.0;
+                for (int r = 0; r < 3; ++r) {
+                    f += Binv[j][r] * target[r];
+                }
+                out.thrust[static_cast<std::size_t>(healthy[j])] =
+                    std::max(_cfg.min_thrust, std::min(_cfg.max_thrust, f));
+            }
+            for (int i = 0; i < 4; ++i) {
+                if (failed[static_cast<std::size_t>(i)]) {
+                    out.thrust[static_cast<std::size_t>(i)] = 0.0;
+                }
+            }
+            out.failed = failed;
+            return out;
+        }
+    }
+
+    // 默认路径（含 redistribute=false 的对照）：按四电机求解，失效者随后丢弃。
     for (int i = 0; i < 4; ++i) {
         double f = 0.0;
         for (int k = 0; k < 4; ++k) {
@@ -201,8 +293,9 @@ SixDofCommand QuadMixer::unmix(const MotorSet &motors) const {
     return out;
 }
 
-SixDofCommand QuadMixer::apply(const SixDofCommand &cmd, MotorSet &motors) const {
-    MotorSet m = mix(cmd);
+SixDofCommand QuadMixer::apply(const SixDofCommand &cmd, MotorSet &motors,
+                                bool redistribute) const {
+    MotorSet m = mix(cmd, motors.failed, redistribute);
     for (int i = 0; i < 4; ++i) {
         const auto idx = static_cast<std::size_t>(i);
         if (motors.failed[idx]) {

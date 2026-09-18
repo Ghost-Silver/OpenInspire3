@@ -37,6 +37,8 @@ add_library(oi3_simulator STATIC
         core/control/SixDofPidController.cpp
         core/control/ClosedLoop.cpp
         core/control/HoverEnv.cpp
+        core/estimation/ImuModel.cpp
+        core/estimation/StateEstimator.cpp
         core/rl/ContinuousPPO.cpp
         core/Map/VoxelMap.cpp
 )
@@ -46,6 +48,7 @@ target_include_directories(oi3_simulator PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/core/CTorch/include
         ${CMAKE_CURRENT_SOURCE_DIR}/core/simulator/PhysicsEngine
         ${CMAKE_CURRENT_SOURCE_DIR}/core/control
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/estimation
         ${CMAKE_CURRENT_SOURCE_DIR}/core/rl
         ${CMAKE_CURRENT_SOURCE_DIR}/core/Map
 )
@@ -86,6 +89,11 @@ add_test(NAME pid_hover COMMAND PidHoverTest)
 add_executable(AttitudeGainTest core/control/AttitudeGainTest.cpp)
 target_compile_options(AttitudeGainTest PRIVATE -Wall -Wextra)
 target_link_libraries(AttitudeGainTest PRIVATE oi3_simulator)
+
+# 状态估计：从 IMU/位置测量估计控制器所需状态，并与理想状态反馈做同条件闭环对比
+add_executable(EstimatorTest core/estimation/EstimatorTest.cpp)
+target_compile_options(EstimatorTest PRIVATE -Wall -Wextra)
+target_link_libraries(EstimatorTest PRIVATE oi3_simulator)
 
 add_executable(SixDofHoverTest core/control/SixDofHoverTest.cpp)
 target_compile_options(SixDofHoverTest PRIVATE -Wall -Wextra)

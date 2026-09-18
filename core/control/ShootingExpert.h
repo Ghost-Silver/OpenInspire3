@@ -96,18 +96,23 @@ struct ShootingResult {
 /**
  * @brief 用打靶法求解「从 pos0/vel0 飞到 target 并停住」的最优推力序列
  *
- * @param pos0   初始位置（NED，米）
- * @param vel0   初始速度（NED，米/秒）
- * @param target 目标位置（NED，米）
- * @param env    环境配置（必须与训练环境一致，观测/动作换算直接取自它）
- * @param sc     求解配置
+ * @param pos0     初始位置（NED，米）
+ * @param vel0     初始速度（NED，米/秒）
+ * @param target   目标位置（NED，米）
+ * @param env      环境配置（必须与训练环境一致，观测/动作换算直接取自它）
+ * @param sc       求解配置
+ * @param warm_seq 热启动初值（可选）。滚动时域控制里每一次重规划的问题只比上一次
+ *                 略作平移，用上一次解作为初值能把迭代数压到很低；传空则从悬停推力
+ *                 出发冷启动。长度不足 segments 的部分按悬停推力补齐。
  * @return 推力序列与配套的 (观测, 动作) 演示数据
  */
 [[nodiscard]] ShootingResult shootHover(const std::array<double, 3> &pos0,
                                         const std::array<double, 3> &vel0,
                                         const std::array<double, 3> &target,
                                         const HoverEnvConfig &env,
-                                        const ShootingConfig &sc);
+                                        const ShootingConfig &sc,
+                                        const std::vector<std::array<double, 3>>
+                                            &warm_seq = {});
 
 } // namespace oi3
 

@@ -80,7 +80,8 @@ std::array<float, 3> thrustToAction(const Tensor &thrust, const HoverEnvConfig &
 ShootingResult shootHover(const std::array<double, 3> &pos0,
                           const std::array<double, 3> &vel0,
                           const std::array<double, 3> &target, const HoverEnvConfig &env,
-                          const ShootingConfig &sc) {
+                          const ShootingConfig &sc,
+                          const std::vector<std::array<double, 3>> &warm_seq) {
     ShootingResult result;
 
     const Config &plant = env.plant;
@@ -100,9 +101,17 @@ ShootingResult shootHover(const std::array<double, 3> &pos0,
     for (int s = 0; s < segments; ++s) {
         Tensor t(ShapeTag{}, {3});
         float *p = t.data_write<float>();
-        p[0] = 0.0f;
-        p[1] = 0.0f;
-        p[2] = static_cast<float>(hover_d);
+        if (static_cast<std::size_t>(s) < warm_seq.size()) {
+            // 热启动：用上一次的解。滚动时域控制里相邻两次规划的问题只差一小段
+            // 时间平移，热启动能把所需迭代数压到很低。
+            p[0] = static_cast<float>(warm_seq[static_cast<std::size_t>(s)][0]);
+            p[1] = static_cast<float>(warm_seq[static_cast<std::size_t>(s)][1]);
+            p[2] = static_cast<float>(warm_seq[static_cast<std::size_t>(s)][2]);
+        } else {
+            p[0] = 0.0f;
+            p[1] = 0.0f;
+            p[2] = static_cast<float>(hover_d);
+        }
         t.requires_grad(true);
         seg_thrust.push_back(std::move(t));
     }

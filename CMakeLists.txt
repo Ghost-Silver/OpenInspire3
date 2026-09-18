@@ -37,6 +37,7 @@ add_library(oi3_simulator STATIC
         core/control/ShootingMpc.cpp
         core/control/SixDofPidController.cpp
         core/control/SixDofManualController.cpp
+        core/control/MotorMixer.cpp
         core/control/ClosedLoop.cpp
         core/control/HoverEnv.cpp
         core/estimation/ImuModel.cpp
@@ -98,6 +99,11 @@ target_compile_options(EstimatorTest PRIVATE -Wall -Wextra)
 target_link_libraries(EstimatorTest PRIVATE oi3_simulator)
 
 # 轨迹跟踪能力实测：定点 PID 用于跟踪时的系统性滞后
+# 单电机失效：混控矩阵可控性分析与失控实测
+add_executable(MotorFailureTest core/control/MotorFailureTest.cpp)
+target_compile_options(MotorFailureTest PRIVATE -Wall -Wextra)
+target_link_libraries(MotorFailureTest PRIVATE oi3_simulator)
+
 # 打杆机动：手动模式下飞行器对遥控杆量的响应
 add_executable(StickManeuverTest core/control/StickManeuverTest.cpp)
 target_compile_options(StickManeuverTest PRIVATE -Wall -Wextra)

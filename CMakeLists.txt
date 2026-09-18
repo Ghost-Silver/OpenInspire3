@@ -29,6 +29,7 @@ add_library(oi3_simulator STATIC
         core/simulator/PhysicsEngine/TensorUtils.cpp
         core/simulator/PhysicsEngine/SixDofDynamics.cpp
         core/simulator/PhysicsEngine/SixDofDynamicsDiff.cpp
+        core/simulator/PhysicsEngine/ParameterIdentification.cpp
         core/simulator/PhysicsEngine/SixDofSimulator.cpp
         core/control/PidController.cpp
         core/control/ShootingExpert.cpp
@@ -94,6 +95,10 @@ target_link_libraries(MpcHoverTest PRIVATE oi3_simulator)
 add_executable(TrainShootingPolicy core/control/TrainShootingPolicy.cpp)
 target_compile_options(TrainShootingPolicy PRIVATE -Wall -Wextra)
 target_link_libraries(TrainShootingPolicy PRIVATE oi3_simulator)
+
+add_executable(ParameterIdTest core/simulator/PhysicsEngine/ParameterIdTest.cpp)
+target_compile_options(ParameterIdTest PRIVATE -Wall -Wextra)
+target_link_libraries(ParameterIdTest PRIVATE oi3_simulator)
 
 add_executable(SixDofGradTest core/simulator/PhysicsEngine/SixDofGradTest.cpp)
 target_compile_options(SixDofGradTest PRIVATE -Wall -Wextra)

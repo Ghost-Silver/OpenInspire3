@@ -356,6 +356,164 @@ int main() {
                   r0 == 4 && r1 == 4);
     }
 
+    // ---- 4. 可控旋转：周期调制能否恢复位置控制 ----
+    //
+    // 失去一个电机后只丢了**一个**力矩自由度。若让飞行器绕那个失去控制的轴
+    // 自由旋转，就不再需要控制它 —— 姿态不需要稳定到固定指向，持续自旋本身
+    // 就是它的姿态。代价是不能悬停，但位置可以靠**周期调制**救回来。
+    //
+    // 模型：飞行器以 Ω 绕竖直轴自旋，机体保持固定倾角 θ，于是推力方向在 NED
+    // 系中随自旋旋转：
+    //     u(t) = [ sinθ·cos(Ωt), sinθ·sin(Ωt), −cosθ ]
+    // 三电机合力 f(t) 可在 [0, 3·fmax] 内调制（近似：高速自旋时角动量很大，
+    // 电机力矩造成的章动被陀螺效应约束，因此把 f 当作可直接调制的量）。
+    // 平均力为 F = (1/T)∫ f(t)·u(t) dt。
+    std::cout << "\n[4] 可控旋转：周期调制能恢复哪些控制能力\n";
+    {
+        const double fmax_total = 3.0 * mc.max_thrust; // 失效后三电机总推力上限
+        const double theta = 30.0 * M_PI / 180.0;      // 自旋时的机体倾角
+        const int N = 1440;                            // 每周期采样数
+
+        // 给定 (f0, f1, psi) 计算一个自旋周期内的平均力
+        auto meanForce = [&](double f0, double f1, double psi, double &fx, double &fy,
+                             double &fz) {
+            fx = fy = fz = 0.0;
+            for (int k = 0; k < N; ++k) {
+                const double t = 2.0 * M_PI * k / N; // 归一化相位 Ωt
+                double f = f0 + f1 * std::cos(t + psi);
+                f = std::max(0.0, std::min(fmax_total, f));
+                fx += f * std::sin(theta) * std::cos(t);
+                fy += f * std::sin(theta) * std::sin(t);
+                fz += f * (-std::cos(theta));
+            }
+            fx /= N;
+            fy /= N;
+            fz /= N;
+        };
+
+        // (a) 纯常值调制：只能产生竖直力
+        double ax, ay, az;
+        meanForce(fmax_total * 0.5, 0.0, 0.0, ax, ay, az);
+        std::cout << "    (a) 常值调制 f0=1.5f_max：F = [" << std::setprecision(4) << ax << ", "
+                  << ay << ", " << az << "]"
+                  << "  （水平分量为零，符合预期）\n";
+        checkTrue("纯常值调制不产生水平力（水平分量为零）",
+                  std::fabs(ax) < 1e-12 && std::fabs(ay) < 1e-12);
+
+        // (b) 一阶谐波调制：产生水平力，方向由相位 psi 决定
+        std::cout << "\n    (b) 一阶谐波调制 f = f0 + f1·cos(Ωt+ψ)，扫描 ψ：\n";
+        std::cout << "        " << std::setw(10) << "ψ(deg)" << std::setw(16) << "Fx(N)"
+                  << std::setw(16) << "Fy(N)" << std::setw(18) << "水平方向(deg)"
+                  << "\n";
+        double min_h = 1e9, max_h = -1e9;
+        bool dir_ok = true;
+        for (int i = 0; i < 8; ++i) {
+            const double psi = i * M_PI / 4.0;
+            meanForce(fmax_total * 0.5, fmax_total * 0.4, psi, ax, ay, az);
+            const double hm = std::sqrt(ax * ax + ay * ay);
+            const double dir = std::atan2(ay, ax) * 180.0 / M_PI;
+            min_h = std::min(min_h, hm);
+            max_h = std::max(max_h, hm);
+            std::cout << "        " << std::setw(10) << (psi * 180.0 / M_PI) << std::setw(16)
+                      << ax << std::setw(16) << ay << std::setw(18) << dir << "\n";
+            // 解析结果：∫cos(t+ψ)cos(t)dt ∝ cosψ、∫cos(t+ψ)sin(t)dt ∝ −sinψ，
+            // 故水平力方向 = atan2(−sinψ, cosψ) = −ψ
+            double expect = -psi * 180.0 / M_PI;
+            while (expect > 180.0) {
+                expect -= 360.0;
+            }
+            while (expect < -180.0) {
+                expect += 360.0;
+            }
+            if (std::fabs(dir - expect) > 1e-6) {
+                dir_ok = false;
+            }
+        }
+        checkTrue("水平力方向随调制相位 ψ 覆盖全圆（可指向任意方向）", dir_ok);
+        checkTrue("各相位下水平力幅值恒定（与方向无关）",
+                  std::fabs(max_h - min_h) < 1e-9 * std::max(1.0, max_h));
+
+        // (c) 可达集的边界形状：垂直力与水平力不是完全独立的
+        //
+        // 调制波形 f0 + f1·cos 必须落在 [0, fmax_total] 内，于是
+        //     f1_max = min(f0, fmax_total − f0)
+        // 垂直力由 f0 给出、水平力上限由 f1 给出 —— 两者**此消彼长**，
+        // 可达集是一个**锥**而不是柱体。这一点第一版断言没考虑到，
+        // 当时用了会触碰上限的 f0，结果水平力被削顶而误判为「不解耦」。
+        const double f1_fixed = fmax_total * 0.3;
+        std::cout << "\n    (c) 可达集边界：固定调制幅度 f1 = " << std::setprecision(4)
+                  << f1_fixed << "，扫描 f0\n";
+        std::cout << "        " << std::setw(10) << "f0" << std::setw(14) << "Fz(N)"
+                  << std::setw(16) << "水平力(N)" << std::setw(18) << "f 波形范围"
+                  << std::setw(12) << "是否削顶" << "\n";
+        double prev_h = -1.0;
+        bool decoupled_ok = true;
+        for (int i = 0; i < 6; ++i) {
+            const double f0 = f1_fixed + 0.5 + i * 1.5;
+            meanForce(f0, f1_fixed, 0.0, ax, ay, az);
+            const double hm = std::sqrt(ax * ax + ay * ay);
+            const double lo = f0 - f1_fixed;
+            const double hi = f0 + f1_fixed;
+            const bool clipped = (hi > fmax_total + 1e-9) || (lo < -1e-9);
+            std::cout << "        " << std::setw(10) << f0 << std::setw(14) << az
+                      << std::setw(16) << hm << std::setw(18)
+                      << ("[" + std::to_string(static_cast<int>(lo * 10) / 10.0) + ", " +
+                          std::to_string(static_cast<int>(hi * 10) / 10.0) + "]")
+                      << std::setw(12) << (clipped ? "是" : "否") << "\n";
+            if (!clipped && i > 0 && prev_h > 0.0 && std::fabs(hm - prev_h) > 1e-9) {
+                decoupled_ok = false;
+            }
+            prev_h = hm;
+        }
+        checkTrue("未削顶时 f0 只影响垂直力、水平力恒定（两者在锥内解耦）", decoupled_ok);
+
+        // 解析验证：水平力上限应为 min(f0, fmax−f0)·sinθ/2
+        double worst = 0.0;
+        for (double f0 : {5.0, 6.5, 8.0, 9.5}) {
+            meanForce(f0, std::min(f0, fmax_total - f0), 0.0, ax, ay, az);
+            const double got = std::sqrt(ax * ax + ay * ay);
+            const double pred =
+                std::min(f0, fmax_total - f0) * std::sin(theta) / 2.0;
+            worst = std::max(worst, std::fabs(got - pred));
+        }
+        checkTrue("水平力上限与解析式 f1·sinθ/2 一致（误差 1e-6 以内）", worst < 1e-6);
+
+        // (d) 悬停所需推力是否在可达集内
+        const double need_vert = m * g; // 悬停需要的竖直力
+        const double f0_needed = need_vert / std::cos(theta);
+        std::cout << "\n    (d) 悬停所需：竖直力 " << std::setprecision(4) << need_vert
+                  << " N，对应 f0 = " << f0_needed << " N，三电机上限 " << fmax_total
+                  << " N\n";
+        checkTrue("悬停所需的竖直力在三电机可达范围内（前提是倾角不要太大）",
+                  f0_needed <= fmax_total);
+
+        // 倾角上限：f0_needed = mg/cosθ <= 3·fmax  =>  θ <= acos(mg/(3·fmax))
+        const double cos_max = m * g / fmax_total;
+        if (cos_max < 1.0) {
+            const double theta_max = std::acos(cos_max) * 180.0 / M_PI;
+            std::cout << "        最大可用倾角 " << std::setprecision(2) << theta_max
+                      << " deg（超过则竖直分量不足以维持高度）\n";
+        }
+
+        // (e) 代价：旋转模式还剩多少水平机动能力
+        //
+        // 维持高度已经占掉了大部分推力预算，留给调制的余量很薄 ——
+        // 调制幅度受 f1 <= min(f0, fmax−f0) 约束，而 f0 必须接近 mg/cosθ
+        // 才能托住重量。所以旋转模式「能救回来，但很笨拙」。
+        const double f1_avail = std::min(f0_needed, fmax_total - f0_needed);
+        const double horiz_force = f1_avail * std::sin(theta) / 2.0;
+        const double accel_spin = horiz_force / m;
+        const double accel_normal = g * std::tan(35.0 * M_PI / 180.0); // 正常模式倾角限幅
+        std::cout << "\n    (e) 水平机动能力对比：\n";
+        std::cout << "        正常四旋翼（倾角 35 deg）: " << std::setprecision(2)
+                  << accel_normal << " m/s²\n";
+        std::cout << "        旋转容错模式（三电机）  : " << accel_spin << " m/s²"
+                  << "（水平力上限 " << std::setprecision(3) << horiz_force << " N）\n";
+        std::cout << "        比值 " << std::setprecision(1) << (accel_normal / accel_spin)
+                  << " 倍 —— 旋转模式能救回来，但机动能力大幅缩水。\n";
+        checkTrue("旋转模式仍具备水平机动能力（可用于返航或缓降）", accel_spin > 0.1);
+    }
+
     std::cout << "\n[结论]\n";
     std::cout << "  1. 四旋翼的 4×4 混控矩阵可逆，这是四个控制量能独立指定的原因。\n";
     std::cout << "  2. 失去一个电机后矩阵变为 4×3，秩降为 3 —— 四维控制空间里有\n";
@@ -364,7 +522,13 @@ int main() {
     std::cout << "  3. 失控与推力无关：本配置下失效后仍有 15 N 推力（悬停只需 9.81 N），\n";
     std::cout << "     推不动不是原因，少一个控制自由度才是。\n";
     std::cout << "  4. 六旋翼的混控矩阵是超定的（4×6），失去一个电机后仍满秩 ——\n";
-    std::cout << "     容错的正确做法是硬件冗余，而不是在四旋翼上想办法。\n";
+    std::cout << "     硬件冗余是最直接的一条路。\n";
+    std::cout << "  5. 另一条路是**可控旋转**：失去一个电机只丢了一个力矩自由度，若让\n";
+    std::cout << "     飞行器绕该轴自由旋转便不再需要控制它。位置靠自旋周期内的推力\n";
+    std::cout << "     调制恢复 —— 垂直力由常值分量给出、水平力由一阶谐波给出、\n";
+    std::cout << "     方向由调制相位给出。代价是不能悬停，而且维持高度已经占掉大部分\n";
+    std::cout << "     推力预算，留给调制的余量很薄 —— 水平机动能力只剩正常模式的\n";
+    std::cout << "     约 1/7，属于「能救回来但很笨拙」。\n";
 
     std::cout << "\n========================================\n";
     std::cout << g_checks - g_failed << " / " << g_checks << " checks passed\n";

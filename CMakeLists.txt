@@ -83,6 +83,10 @@ target_link_libraries(PidHoverTest PRIVATE oi3_simulator)
 add_test(NAME pid_hover COMMAND PidHoverTest)
 
 # 六自由度：倾斜产生水平分量、四元数积分、级联 PID 定点悬停
+add_executable(AttitudeGainTest core/control/AttitudeGainTest.cpp)
+target_compile_options(AttitudeGainTest PRIVATE -Wall -Wextra)
+target_link_libraries(AttitudeGainTest PRIVATE oi3_simulator)
+
 add_executable(SixDofHoverTest core/control/SixDofHoverTest.cpp)
 target_compile_options(SixDofHoverTest PRIVATE -Wall -Wextra)
 target_link_libraries(SixDofHoverTest PRIVATE oi3_simulator)

@@ -41,7 +41,24 @@ double norm(const V3d &a) { return std::sqrt(dot(a, a)); }
 } // namespace
 
 SixDofPidController::SixDofPidController(SixDofConfig cfg, SixDofPidGains gains)
-    : _cfg(std::move(cfg)), _gains(gains) {}
+    : _cfg(std::move(cfg)), _gains(gains) {
+    // 三轴增益在构造时一次性确定：按期望带宽/阻尼比 + 惯量推导，或用一组手动值。
+    // 放在构造期而不是每步计算，是因为惯量在一次飞行里不变，而 compute 是 1 kHz 热路径。
+    if (_gains.derive_attitude_from_inertia) {
+        const double wn = std::max(1e-3, _gains.att_bandwidth);
+        const double zeta = std::max(1e-3, _gains.att_damping);
+        for (int i = 0; i < 3; ++i) {
+            const double I = std::max(1e-9, _cfg.inertia[i]);
+            _att_kp[i] = I * wn * wn;
+            _att_kd[i] = 2.0 * zeta * I * wn;
+        }
+    } else {
+        for (int i = 0; i < 3; ++i) {
+            _att_kp[i] = _gains.att_kp;
+            _att_kd[i] = _gains.att_kd;
+        }
+    }
+}
 
 void SixDofPidController::reset() { _last_tilt_deg = 0.0; }
 
@@ -111,9 +128,9 @@ SixDofCommand SixDofPidController::compute(const SixDofState &state, const Tenso
     cmd.thrust_body = f_norm; // 推力大小取合力模长；倾斜时自动增大以维持竖直分量
 
     cmd.torque = makeVec3(
-        static_cast<float>(_gains.att_kp * rotvec_body.x - _gains.att_kd * omega.x),
-        static_cast<float>(_gains.att_kp * rotvec_body.y - _gains.att_kd * omega.y),
-        static_cast<float>(_gains.att_kp * rotvec_body.z - _gains.att_kd * omega.z));
+        static_cast<float>(_att_kp[0] * rotvec_body.x - _att_kd[0] * omega.x),
+        static_cast<float>(_att_kp[1] * rotvec_body.y - _att_kd[1] * omega.y),
+        static_cast<float>(_att_kp[2] * rotvec_body.z - _att_kd[2] * omega.z));
 
     return cmd;
 }

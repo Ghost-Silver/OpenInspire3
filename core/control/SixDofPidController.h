@@ -60,7 +60,24 @@ struct SixDofPidGains {
     double pos_kd = 3.0;
     double max_accel = 12.0; ///< 期望加速度限幅（m/s²）
 
-    // 姿态环：输出力矩
+    // ---- 姿态环：输出力矩 ----
+    //
+    // 姿态环的物理量纲是「力矩 → 角加速度」，而角加速度 = τ / I —— 因此**增益必须
+    // 随惯量缩放**才能让三轴得到一致的闭环特性。原先用一组标量增益套三轴，
+    // 转动惯量三轴不等时闭环带宽与阻尼比都会不同：以默认值（I={0.01,0.01,0.02}、
+    // kp=0.9、kd=0.25）计，roll/pitch 的带宽 9.5 rad/s、阻尼比 1.32，而 yaw 是
+    // 6.7 rad/s、0.93 —— yaw 的响应比另外两轴慢四成，姿态耦合时这一轴明显滞后。
+    //
+    // 默认改为按「期望带宽 + 阻尼比」推导（惯量取自 SixDofConfig，而惯量正是可以用
+    // ParameterIdentification 从实测轨迹辨识的量）：
+    //     att_kp[i] = I[i] · ωn²
+    //     att_kd[i] = 2·ζ·I[i]·ωn
+    // 这样三轴的闭环特性一致，且惯量变了增益自动跟着变 —— 增益是算出来的，不是试出来的。
+    bool derive_attitude_from_inertia = true;
+    double att_bandwidth = 9.0; ///< 姿态环期望带宽 ωn（rad/s）
+    double att_damping = 1.0;   ///< 姿态环期望阻尼比 ζ（1.0 = 临界阻尼）
+
+    // 手动模式（derive_attitude_from_inertia = false 时使用）
     double att_kp = 0.9;  ///< 姿态角误差增益（N·m/rad）
     double att_kd = 0.25; ///< 角速度阻尼（N·m·s/rad）
 
@@ -81,11 +98,20 @@ class SixDofPidController : public SixDofController {
     void reset() override;
 
     [[nodiscard]] const SixDofPidGains &gains() const { return _gains; }
+
+    /// 第 i 轴（0=roll,1=pitch,2=yaw）实际使用的姿态增益
+    [[nodiscard]] double attKp(int axis) const { return _att_kp[axis]; }
+    [[nodiscard]] double attKd(int axis) const { return _att_kd[axis]; }
     [[nodiscard]] double lastTiltDeg() const { return _last_tilt_deg; }
 
   private:
     SixDofConfig _cfg;
     SixDofPidGains _gains;
+
+    /// 三轴姿态增益（由构造时按推导模式或手动模式确定）
+    double _att_kp[3] = {0.0, 0.0, 0.0};
+    double _att_kd[3] = {0.0, 0.0, 0.0};
+
     double _last_tilt_deg = 0.0;
 };
 

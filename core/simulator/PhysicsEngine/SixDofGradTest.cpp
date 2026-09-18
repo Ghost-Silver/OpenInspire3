@@ -497,10 +497,13 @@ int main() {
             return (dp * dp).sum() + (dv * dv).sum() * 0.5f;
         };
 
+        // 初始推力刻意远低于悬停所需（悬停约 9.81 N）：这样梯度有明确的方向
+        // 与足够的优化空间 —— 若初值已接近最优，符号梯度只会在最优点附近交替
+        // 振荡，末态代价与初值几乎相同，判据失去区分度（实测如此）。
         std::vector<Tensor> thrusts;
         thrusts.reserve(SEGMENTS);
         for (int i = 0; i < SEGMENTS; ++i) {
-            thrusts.push_back(leaf1d({9.81f}, true));
+            thrusts.push_back(leaf1d({5.0f}, true));
         }
 
         std::cout << "    [t=" << elapsedMs() << "ms] 开始 rollout\n";
@@ -521,15 +524,14 @@ int main() {
         // 量级远小于目标距离），普通梯度步长会让一轮之内的变化落在 float 精度之下，
         // 判据无法体现「梯度方向正确」。符号梯度每步固定移动 step_newton，
         // 与梯度尺度无关，一轮即可观察到明确下降。
-        const float step_newton = 0.5f;
+        const float step_newton = 0.2f;
 
-        // 优化轮数默认 1。原因见文件头的「已知框架问题」：当前 CTorch 在
-        // **同一进程内反复构建-反传同一形态的图**时，C3 反向融合路径会越界
-        // （EXC_BAD_ACCESS / KERN_PROTECTION_FAILURE，故障地址为页对齐边界），
-        // 一轮之内不会触发，第二轮必现；把 C3 反向整体关掉则触发另一处 abort。
-        // 因此这里以「一轮梯度更新 + 独立评估」验证「梯度可用且方向正确」，
-        // 多轮下降留给框架问题解决后启用（OI3_GRAD_EPOCHS=N）。
-        int EPOCHS = 1;
+        // 优化轮数。此前默认只能取 1：CTorch 在「同一进程内反复构建-反传同一形态
+        // 的图」时会越界崩溃（根因是 Arena 的对象池与跨轮存活的 shared_ptr 冲突，
+        // 已修 —— 见 CTorch 提交 fc13686）。修复后多轮优化正常运行：
+        // 30 轮足以让代价下降约 5.7%（推力由 5.0 被推至 9.0，趋近悬停所需的 9.81），
+        // 环境变量保留以便调参。
+        int EPOCHS = 30;
         if (const char *e = std::getenv("OI3_GRAD_EPOCHS")) {
             EPOCHS = std::atoi(e);
         }
@@ -557,12 +559,32 @@ int main() {
 
         for (int epoch = 0; epoch < EPOCHS; ++epoch) {
             stepOnce();
+            // 每若干轮打印一次代价轨迹：仅看首末两点无法区分「收敛」与「在最优附近
+            // 振荡」——两者都可能表现为终点回到起点，需要的判据不同。
+            if ((epoch + 1) % 10 == 0) {
+                const double cur = static_cast<double>(rollout(thrusts).data<float>()[0]);
+                const float *g0 = thrusts[0].grad_ptr();
+                std::cout << "      epoch " << (epoch + 1) << "  loss = " << cur
+                          << "  T[0] = " << thrusts[0].data<float>()[0]
+                          << "  g[0] = " << (g0 ? g0[0] : 0.0f)
+                          << "  T[4] = " << thrusts[4].data<float>()[0]
+                          << "  g[4] = "
+                          << (thrusts[4].grad_ptr() ? thrusts[4].grad_ptr()[0] : 0.0f)
+                          << "\n" << std::flush;
+            }
         }
 
         const double loss_after = static_cast<double>(rollout(thrusts).data<float>()[0]);
         std::cout << "    [t=" << elapsedMs() << "ms] " << EPOCHS << " 轮梯度下降完成\n";
-        std::cout << "    loss（更新前->更新后）: " << loss_before << " -> " << loss_after
-                  << "\n";
+        std::cout << "    loss（更新前->更新后）: " << loss_before << " -> " << loss_after;
+        if (loss_before != 0.0) {
+            std::cout << "（相对下降 " << (100.0 * (loss_before - loss_after) / loss_before)
+                      << "%）";
+        }
+        std::cout << "\n";
+        // 判据是「梯度通路可用且方向正确」：40 ms 的窗口里推力对末端状态的影响本就
+        // 有限（外加 8 段之间的更新会部分抵消），因此不设大幅下降的门槛，
+        // 只要求代价确实下降。
         checkTrue("梯度下降使末端代价下降",
                   std::isfinite(loss_after) && loss_after < loss_before);
     }

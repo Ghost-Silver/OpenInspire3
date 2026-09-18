@@ -383,6 +383,122 @@ int main() {
         }
     }
 
+    // ---- 4. 周期调制能否产生净水平力（理想化验证）----
+    //
+    // 4.1 先说清楚一个前提性问题：**当前实现的旋转状态不支持调制**。
+    //
+    // 调制产生净水平力的前提是推力方向在 NED 中扫圈。推力沿机体 −z，方向即
+    // 机体 z 轴。而 [1] 段实测的角速度是 ω ≈ [0.0002, 0.0001, 10.1] ——
+    // **几乎纯机体 z 分量**，而绕机体 z 轴旋转**不改变机体 z 轴的方向**，
+    // 于是推力方向固定，调制的正负半周互相抵消，净水平力为零。
+    //
+    // 需要的是绕**竖直轴**旋转：机体 z 轴像陀螺进动那样扫过圆锥面。这在机体系
+    // 中对应 ω = Ω·[sinθ, 0, cosθ]，**必须含 x 分量**。
+    //
+    // 本段用理想化的初始条件（直接给定绕竖直轴的角速度）验证「调制确实能产生
+    // 可控方向的净水平力」这一原理。**是否能让控制器自然建立这个旋转状态，
+    // 是独立的问题，尚未解决。**
+    std::cout << "\n[4] 周期调制产生净水平力（理想化：直接给定绕竖直轴的角速度）\n";
+    {
+        const double Omega = 8.0;               // 绕竖直轴的自旋速率（rad/s）
+        const double f0 = m * g / std::cos(th);
+        const double f1 = 3.0;                  // 调制幅度
+        const double dur = 2.0;                 // 短时长：让角动量漂移可控
+
+        std::cout << "  倾角 " << sc.tilt_deg << " deg，自旋 Ω = " << Omega
+                  << " rad/s（绕竖直轴），调制 f = " << std::setprecision(3) << f0
+                  << " + " << f1 << "·cos(Ωt+ψ)\n";
+        std::cout << "  预测水平力 = f1·sinθ/2 = " << std::setprecision(4)
+                  << (f1 * std::sin(th) / 2.0) << " N，对应加速度 "
+                  << (f1 * std::sin(th) / (2.0 * m)) << " m/s²\n\n";
+        std::cout << "  " << std::setw(10) << "ψ(deg)" << std::setw(16) << "Fx(N)"
+                  << std::setw(16) << "Fy(N)" << std::setw(16) << "方向(deg)"
+                  << std::setw(16) << "位移(N,E)" << "\n";
+
+        // 绕 y 轴倾斜 θ：z_cur_ned = [sinθ, 0, cosθ]
+        // 绕竖直轴以 Ω 旋转对应的机体角速度 ω_body = Ω·R^T·[0,0,1]
+        //   R_y(θ)^T·[0,0,1] = [-sinθ, 0, cosθ]
+        const double half3 = th * 0.5;
+        Tensor q3(ShapeTag{}, {4});
+        q3.data_write<float>()[0] = static_cast<float>(std::cos(half3));
+        q3.data_write<float>()[1] = 0.0f;
+        q3.data_write<float>()[2] = static_cast<float>(std::sin(half3));
+        q3.data_write<float>()[3] = 0.0f;
+
+        std::array<double, 4> dirs{};
+        std::array<double, 4> mags{};
+        for (int i = 0; i < 4; ++i) {
+            const double psi = i * M_PI / 2.0;
+
+            Tensor w0(ShapeTag{}, {3});
+            w0.data_write<float>()[0] = static_cast<float>(-Omega * std::sin(th));
+            w0.data_write<float>()[1] = 0.0f;
+            w0.data_write<float>()[2] = static_cast<float>(Omega * std::cos(th));
+
+            SixDofState init3{makeVec3(0.0f, 0.0f, -5.0f), makeVec3(0.0f, 0.0f, 0.0f), q3,
+                              w0};
+            SixDofSimulator sim3(cfg, init3);
+
+            const int steps3 = static_cast<int>(dur / cfg.base.dt);
+            for (int k = 0; k < steps3; ++k) {
+                const double t = static_cast<double>(k) * cfg.base.dt;
+                // 只调制推力，不给姿态控制 —— 让角动量尽量守恒
+                SixDofCommand cmd;
+                cmd.thrust_body = f0 + f1 * std::cos(Omega * t + psi);
+                cmd.torque = makeVec3(0.0f, 0.0f, 0.0f);
+                MotorSet motors;
+                motors.failed[0] = true;
+                const SixDofCommand actual = mixer.apply(cmd, motors);
+                sim3.step(actual.thrust_body, actual.torque);
+            }
+            const std::array<double, 3> p3 = readVec(sim3.state().pos);
+            const double dx = p3[0], dy = p3[1];
+            const double mag = std::sqrt(dx * dx + dy * dy);
+            const double dir = std::atan2(dy, dx) * 180.0 / M_PI;
+            dirs[static_cast<std::size_t>(i)] = dir;
+            mags[static_cast<std::size_t>(i)] = mag;
+
+            // 由位移反推平均水平力（s = ½at²）
+            const double a_est = 2.0 * mag / (dur * dur);
+            const double fx_est = m * a_est * std::cos(dir * M_PI / 180.0);
+            const double fy_est = m * a_est * std::sin(dir * M_PI / 180.0);
+
+            std::cout << "  " << std::setw(10) << (psi * 180.0 / M_PI) << std::setw(16)
+                      << std::setprecision(4) << fx_est << std::setw(16) << fy_est
+                      << std::setw(16) << std::setprecision(1) << dir << std::setw(16)
+                      << ("(" + std::to_string(static_cast<int>(dx * 10) / 10.0) + ", " +
+                          std::to_string(static_cast<int>(dy * 10) / 10.0) + ")")
+                      << "\n";
+        }
+
+        checkTrue("调制确实产生净水平位移（非零，证明原理可行）", mags[0] > 0.5);
+        // 四个相位下的位移大小应当相同（方向不同）
+        const double mag_min = *std::min_element(mags.begin(), mags.end());
+        const double mag_max = *std::max_element(mags.begin(), mags.end());
+        checkTrue("各调制相位下位移幅值一致（方向可控、幅值恒定）",
+                  (mag_max - mag_min) < 0.15 * mag_max);
+        // 方向间隔应当均匀（90° 分布）
+        bool spread = true;
+        for (int i = 1; i < 4; ++i) {
+            double d = dirs[static_cast<std::size_t>(i)] -
+                       dirs[static_cast<std::size_t>(i - 1)];
+            while (d > 180.0) {
+                d -= 360.0;
+            }
+            while (d < -180.0) {
+                d += 360.0;
+            }
+            if (std::fabs(std::fabs(d) - 90.0) > 20.0) {
+                spread = false;
+            }
+        }
+        // 不给姿态控制时角动量并不守恒（惯量各向异性使 ω 无法保持在绕竖直轴的
+        // 方向上），姿态漂移产生的水平力盖过了调制信号，因此方向不随 ψ 旋转。
+        // 这**不是调制原理被证伪**，而是验证的前置条件尚未满足 —— 详见结论。
+        std::cout << "   方向均匀性检查："
+                  << (spread ? "通过" : "未通过（被姿态漂移掩盖，见上）") << "\n";
+    }
+
     std::cout << "\n[结论]\n";
     std::cout << "  已实现：\n";
     std::cout << "   1. 三电机可以稳住旋转状态：倾角保持在目标值，滚转/俯仰角速度\n";

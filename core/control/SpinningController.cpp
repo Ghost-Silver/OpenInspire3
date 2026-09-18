@@ -96,16 +96,23 @@ SixDofCommand SpinningController::compute(const SixDofState &state) const {
     const Tensor z_axis_body = makeVec3(0.0f, 0.0f, 1.0f);
     const V3d z_cur = readV3(rotateBodyToNed(state.quat, z_axis_body));
 
+    // 注意 NED 系的 z 轴**朝下**，机体 z 轴与之同向：水平时 z_cur = [0,0,+1]，
+    // 倾斜 θ 后为 [sinθ·ux, sinθ·uy, **+**cosθ] —— z 分量始终为正。
+    //
+    // 这里踩过第三个坑：写成 −cosθ 会让目标指向反方向，与水平姿态的夹角变成
+    // acos(−cosθ)，θ=25° 时是 155° 而非 25°。控制器于是从一开始就在纠正一个
+    // 155° 的假误差，把飞行器直接打翻 —— 表现为「从精确目标倾角出发也保不住」，
+    // 而根源只是一个符号。
     const double hnorm = std::sqrt(z_cur.x * z_cur.x + z_cur.y * z_cur.y);
     V3d z_des{};
     if (hnorm > 1e-6) {
         // 保持当前倾斜方向，只把倾角大小拉到 θ
         const double ux = z_cur.x / hnorm;
         const double uy = z_cur.y / hnorm;
-        z_des = {ux * std::sin(th), uy * std::sin(th), -std::cos(th)};
+        z_des = {ux * std::sin(th), uy * std::sin(th), std::cos(th)};
     } else {
         // 恰好竖直时方向未定义，任取一个作为起始方向
-        z_des = {std::sin(th), 0.0, -std::cos(th)};
+        z_des = {std::sin(th), 0.0, std::cos(th)};
     }
 
     // ---- 姿态误差：把 z_cur 旋到 z_des 的轴角 ----
@@ -132,13 +139,25 @@ SixDofCommand SpinningController::compute(const SixDofState &state) const {
     //
     // 注意到位后姿态误差为零、力矩也为零，于是角动量守恒，自旋得以保持 ——
     // 不需要额外的陀螺前馈项。若将来发现到位后仍在缓慢漂移，才需要补 ω×(Iω)。
+    // 陀螺耦合前馈：动力学 I·ω̇ = τ − ω×(Iω) − kω，要得到期望闭环
+    // I·ω̇ = kp·e − kd·ω，控制力矩必须加上 ω×(Iω)。
+    // 这一项在低速时可忽略（所以定点与手动控制器都没有它），但在自旋模式下
+    // ω_z 不再是小量，且耦合是交叉的（驱动 x 轴的是 ω_y），不补偿会形成
+    // 两轴互相激励的振荡。
+    V3d gyro{0.0, 0.0, 0.0};
+    if (_sc.compensate_gyroscopic) {
+        const double iw[3] = {_cfg.inertia[0] * omega.x, _cfg.inertia[1] * omega.y,
+                              _cfg.inertia[2] * omega.z};
+        gyro = cross(V3d{omega.x, omega.y, omega.z}, V3d{iw[0], iw[1], iw[2]});
+    }
+
     SixDofCommand cmd;
     const double tau_z = _sc.control_yaw
                              ? (-_att_kp[2] * 0.0 - _att_kd[2] * omega.z) // 仅阻尼
                              : 0.0;
-    cmd.torque = makeVec3(static_cast<float>(_att_kp[0] * e.x - _att_kd[0] * omega.x),
-                          static_cast<float>(_att_kp[1] * e.y - _att_kd[1] * omega.y),
-                          static_cast<float>(tau_z));
+    cmd.torque = makeVec3(static_cast<float>(_att_kp[0] * e.x - _att_kd[0] * omega.x + gyro.x),
+                          static_cast<float>(_att_kp[1] * e.y - _att_kd[1] * omega.y + gyro.y),
+                          static_cast<float>(tau_z + gyro.z));
 
     // ---- 推力 ----
     // 竖直方向：m·a_z = g·m − T·cosθ，要得到期望的 a_cmd 需 T·cosθ = m(g − a_cmd)。

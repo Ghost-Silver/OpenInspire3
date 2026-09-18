@@ -31,6 +31,7 @@ add_library(oi3_simulator STATIC
         core/simulator/PhysicsEngine/SixDofDynamicsDiff.cpp
         core/simulator/PhysicsEngine/SixDofSimulator.cpp
         core/control/PidController.cpp
+        core/control/ShootingExpert.cpp
         core/control/SixDofPidController.cpp
         core/control/ClosedLoop.cpp
         core/control/HoverEnv.cpp
@@ -84,6 +85,10 @@ add_executable(SixDofHoverTest core/control/SixDofHoverTest.cpp)
 target_compile_options(SixDofHoverTest PRIVATE -Wall -Wextra)
 target_link_libraries(SixDofHoverTest PRIVATE oi3_simulator)
 add_test(NAME six_dof_hover COMMAND SixDofHoverTest)
+
+add_executable(TrainShootingPolicy core/control/TrainShootingPolicy.cpp)
+target_compile_options(TrainShootingPolicy PRIVATE -Wall -Wextra)
+target_link_libraries(TrainShootingPolicy PRIVATE oi3_simulator)
 
 add_executable(SixDofGradTest core/simulator/PhysicsEngine/SixDofGradTest.cpp)
 target_compile_options(SixDofGradTest PRIVATE -Wall -Wextra)

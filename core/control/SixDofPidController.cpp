@@ -62,26 +62,24 @@ SixDofPidController::SixDofPidController(SixDofConfig cfg, SixDofPidGains gains)
 
 void SixDofPidController::reset() { _last_tilt_deg = 0.0; }
 
-SixDofCommand SixDofPidController::compute(const SixDofState &state, const Tensor &target,
-                                           double /*time*/) {
-    const double m = _cfg.base.mass;
-    const double g = _cfg.base.gravity;
+namespace {
 
-    const V3d pos = readV3(state.pos);
-    const V3d vel = readV3(state.vel);
-    const V3d tgt = readV3(target);
+/**
+ * @brief 由期望加速度解算推力与力矩（姿态环 + 推力分配）
+ *
+ * 抽出来给定点与跟踪两条入口共用。姿态解算与位置环无关，重复实现只会让两条
+ * 路径慢慢漂开。
+ *
+ * @param att_kp/att_kd 三轴姿态增益（构造期已确定）
+ * @param tilt_out      输出：实际使用的倾角（度）
+ */
+SixDofCommand solveCommand(const SixDofConfig &cfg, const SixDofPidGains &gains,
+                           const double att_kp[3], const double att_kd[3],
+                           const SixDofState &state, const V3d &a_in, double &tilt_out) {
+    const double m = cfg.base.mass;
+    const double g = cfg.base.gravity;
 
-    // ---- 位置环：期望加速度 ----
-    const V3d e_pos{tgt.x - pos.x, tgt.y - pos.y, tgt.z - pos.z};
-    double a_des[3];
-    const double raw[3] = {
-        _gains.pos_kp * e_pos.x + _gains.pos_kd * (-vel.x),
-        _gains.pos_kp * e_pos.y + _gains.pos_kd * (-vel.y),
-        _gains.pos_kp * e_pos.z + _gains.pos_kd * (-vel.z),
-    };
-    for (int i = 0; i < 3; ++i) {
-        a_des[i] = clampd(raw[i], -_gains.max_accel, _gains.max_accel);
-    }
+    const double a_des[3] = {a_in.x, a_in.y, a_in.z};
 
     // ---- 合力与期望推力方向 ----
     // F = m·(a_des − g_vec)，g_vec = [0, 0, g]
@@ -105,9 +103,9 @@ SixDofCommand SixDofPidController::compute(const SixDofState &state, const Tenso
     double theta = std::atan2(sin_theta, cos_theta);
 
     // 倾角限幅：过大的倾角会让竖直可用推力不足以维持高度
-    const double max_tilt = _gains.max_tilt_deg / 180.0 * kPi;
+    const double max_tilt = gains.max_tilt_deg / 180.0 * kPi;
     theta = clampd(theta, -max_tilt, max_tilt);
-    _last_tilt_deg = theta / kPi * 180.0;
+    tilt_out = theta / kPi * 180.0;
 
     V3d rotvec_ned{0.0, 0.0, 0.0};
     if (sin_theta > 1e-9) {
@@ -128,11 +126,60 @@ SixDofCommand SixDofPidController::compute(const SixDofState &state, const Tenso
     cmd.thrust_body = f_norm; // 推力大小取合力模长；倾斜时自动增大以维持竖直分量
 
     cmd.torque = makeVec3(
-        static_cast<float>(_att_kp[0] * rotvec_body.x - _att_kd[0] * omega.x),
-        static_cast<float>(_att_kp[1] * rotvec_body.y - _att_kd[1] * omega.y),
-        static_cast<float>(_att_kp[2] * rotvec_body.z - _att_kd[2] * omega.z));
+        static_cast<float>(att_kp[0] * rotvec_body.x - att_kd[0] * omega.x),
+        static_cast<float>(att_kp[1] * rotvec_body.y - att_kd[1] * omega.y),
+        static_cast<float>(att_kp[2] * rotvec_body.z - att_kd[2] * omega.z));
 
     return cmd;
+}
+
+} // namespace
+
+SixDofCommand SixDofPidController::compute(const SixDofState &state, const Tensor &target,
+                                           double /*time*/) {
+    const V3d pos = readV3(state.pos);
+    const V3d vel = readV3(state.vel);
+    const V3d tgt = readV3(target);
+
+    // ---- 位置环：期望加速度 ----
+    // 定点版本把期望速度与期望加速度都视为零。下面的表达式刻意保持原样
+    // （写成 kp*e + kd*(-vel) 而不是 kd*(0-vel)），使定点悬停的全部既有实测
+    // 结果逐位不变 —— 改控制律时最忌讳把回归数据悄悄改掉。
+    const V3d e_pos{tgt.x - pos.x, tgt.y - pos.y, tgt.z - pos.z};
+    const double raw[3] = {
+        _gains.pos_kp * e_pos.x + _gains.pos_kd * (-vel.x),
+        _gains.pos_kp * e_pos.y + _gains.pos_kd * (-vel.y),
+        _gains.pos_kp * e_pos.z + _gains.pos_kd * (-vel.z),
+    };
+    const V3d a_des{clampd(raw[0], -_gains.max_accel, _gains.max_accel),
+                    clampd(raw[1], -_gains.max_accel, _gains.max_accel),
+                    clampd(raw[2], -_gains.max_accel, _gains.max_accel)};
+
+    return solveCommand(_cfg, _gains, _att_kp, _att_kd, state, a_des, _last_tilt_deg);
+}
+
+SixDofCommand SixDofPidController::computeTracking(const SixDofState &state,
+                                                   const SixDofSetpoint &ref,
+                                                   double /*time*/) {
+    const V3d pos = readV3(state.pos);
+    const V3d vel = readV3(state.vel);
+
+    // ---- 位置环：带参考速度与加速度前馈 ----
+    //   a_des = a_ref + kp·(p_ref − p) + kd·(v_ref − v)
+    // 与定点版本的两点差别：向心/切向加速度由 a_ref 提供（不必再用位置误差换），
+    // 阻尼作用在速度误差上（不再把轨迹本身的运动速度当成要消除的量）。
+    const V3d e_pos{ref.pos[0] - pos.x, ref.pos[1] - pos.y, ref.pos[2] - pos.z};
+    const V3d e_vel{ref.vel[0] - vel.x, ref.vel[1] - vel.y, ref.vel[2] - vel.z};
+    const double raw[3] = {
+        ref.acc[0] + _gains.pos_kp * e_pos.x + _gains.pos_kd * e_vel.x,
+        ref.acc[1] + _gains.pos_kp * e_pos.y + _gains.pos_kd * e_vel.y,
+        ref.acc[2] + _gains.pos_kp * e_pos.z + _gains.pos_kd * e_vel.z,
+    };
+    const V3d a_des{clampd(raw[0], -_gains.max_accel, _gains.max_accel),
+                    clampd(raw[1], -_gains.max_accel, _gains.max_accel),
+                    clampd(raw[2], -_gains.max_accel, _gains.max_accel)};
+
+    return solveCommand(_cfg, _gains, _att_kp, _att_kd, state, a_des, _last_tilt_deg);
 }
 
 } // namespace oi3

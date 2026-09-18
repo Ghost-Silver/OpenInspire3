@@ -95,6 +95,11 @@ add_executable(EstimatorTest core/estimation/EstimatorTest.cpp)
 target_compile_options(EstimatorTest PRIVATE -Wall -Wextra)
 target_link_libraries(EstimatorTest PRIVATE oi3_simulator)
 
+# 轨迹跟踪能力实测：定点 PID 用于跟踪时的系统性滞后
+add_executable(TrajectoryTrackingTest core/control/TrajectoryTrackingTest.cpp)
+target_compile_options(TrajectoryTrackingTest PRIVATE -Wall -Wextra)
+target_link_libraries(TrajectoryTrackingTest PRIVATE oi3_simulator)
+
 add_executable(SixDofHoverTest core/control/SixDofHoverTest.cpp)
 target_compile_options(SixDofHoverTest PRIVATE -Wall -Wextra)
 target_link_libraries(SixDofHoverTest PRIVATE oi3_simulator)

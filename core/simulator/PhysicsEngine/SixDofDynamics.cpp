@@ -116,7 +116,7 @@ Tensor quatToEuler(const Tensor &quat) {
 }
 
 Tensor sixDofAcceleration(const Tensor &vel, const Tensor &quat, double thrust_body,
-                          const Config &cfg) {
+                          const Config &cfg, const Tensor *v_wind) {
     const double m = cfg.mass;
     const double g = cfg.gravity;
 
@@ -130,10 +130,16 @@ Tensor sixDofAcceleration(const Tensor &vel, const Tensor &quat, double thrust_b
 
     Tensor f_total = f_gravity + f_thrust_ned;
 
-    // 气动阻力（NED 系，逐轴二次形式，与三自由度版本口径一致）
+    // 气动阻力（NED 系，逐轴二次形式，与三自由度版本口径一致）。
+    // 有风时按**相对气流**计算：v_rel = v − v_wind。无风时 v_wind 为空，
+    // 表达式与改造前逐字相同，因此所有既有结果逐位不变。
     if (cfg.drag_coeff > 0.0) {
-        const Tensor abs_vel = vel.abs();
-        f_total = f_total + (abs_vel * vel) * static_cast<float>(-cfg.drag_coeff);
+        Tensor v_rel = vel;
+        if (v_wind != nullptr) {
+            v_rel = vel - *v_wind;
+        }
+        const Tensor abs_vel = v_rel.abs();
+        f_total = f_total + (abs_vel * v_rel) * static_cast<float>(-cfg.drag_coeff);
     }
 
     return f_total / static_cast<float>(m);
@@ -176,7 +182,7 @@ Tensor quatDerivative(const Tensor &quat, const Tensor &omega) {
 }
 
 SixDofState rk4StepSixDof(const SixDofState &y, double thrust_body, const Tensor &torque,
-                          const SixDofConfig &cfg, double dt) {
+                          const SixDofConfig &cfg, double dt, const Tensor *v_wind) {
     const float h = static_cast<float>(dt);
     const float half = h * 0.5f;
     const float sixth = h / 6.0f;
@@ -184,7 +190,7 @@ SixDofState rk4StepSixDof(const SixDofState &y, double thrust_body, const Tensor
     const auto derivative = [&](const SixDofState &s) -> SixDofState {
         return SixDofState{
             s.vel,                                                    // dpos/dt = vel
-            sixDofAcceleration(s.vel, s.quat, thrust_body, cfg.base),  // dvel/dt
+            sixDofAcceleration(s.vel, s.quat, thrust_body, cfg.base, v_wind), // dvel/dt
             quatDerivative(s.quat, s.omega),                           // dquat/dt
             angularAcceleration(s.omega, torque, cfg)};                // domega/dt
     };

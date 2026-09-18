@@ -44,9 +44,30 @@ void SixDofSimulator::step(double thrust_body, const Tensor &torque) {
     const double limited_thrust = clampThrust(thrust_body, _config);
     const Tensor limited_torque = clampTorque(torque, _config);
 
-    _state = rk4StepSixDof(_state, limited_thrust, limited_torque, _config, _config.base.dt);
+    // 风速按步首值取一次。无风路径完全不构造张量 —— 既避免 1 kHz 热路径上的
+    // 无谓分配，也保证无风时的数值结果与加风场之前逐位一致。
+    Tensor wind_vec;
+    const Tensor *wind_ptr = nullptr;
+    if (_wind != nullptr) {
+        const WindVec w = _wind->at(_time);
+        if (w[0] != 0.0 || w[1] != 0.0 || w[2] != 0.0) {
+            wind_vec = makeVec3(static_cast<float>(w[0]), static_cast<float>(w[1]),
+                                static_cast<float>(w[2]));
+            wind_ptr = &wind_vec;
+        }
+    }
+
+    _state =
+        rk4StepSixDof(_state, limited_thrust, limited_torque, _config, _config.base.dt, wind_ptr);
     _time += _config.base.dt;
     ++_step_count;
+}
+
+WindVec SixDofSimulator::currentWind() const {
+    if (_wind == nullptr) {
+        return {0.0, 0.0, 0.0};
+    }
+    return _wind->at(_time);
 }
 
 void SixDofSimulator::step(double thrust_body, const Tensor &torque, int n) {

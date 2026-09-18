@@ -45,17 +45,22 @@ namespace oi3 {
 /**
  * @brief 平动加速度
  *
- * @param vel           NED 速度 {3}（用于计算气动阻力）
+ * @param vel           NED 速度 {3}（用于计算相对气流）
  * @param quat          姿态四元数 {4}
  * @param thrust_body   机体 z 轴推力（牛顿，向上为正）
  * @param cfg           配置
+ * @param v_wind        NED 风速 {3}；nullptr 表示无风（模型退化回原有阻力项）
  * @return NED 加速度 {3}，米/秒²
  *
- * 合力 = 重力 + R(q)·[0,0,-T] + 阻力。
+ * 合力 = 重力 + R(q)·[0,0,-T] + 气动阻力。
  * 推力沿机体轴 —— 姿态水平时它只抵消重力，机身倾斜时才产生水平分量。
+ *
+ * 气动阻力取决于**相对速度** v_rel = v − v_wind 而非地速：顺风时相对气流小、
+ * 阻力小，逆风时阻力大。这是风对飞行器作用的核心机制，也是抗风能力分析的起点。
  */
 [[nodiscard]] Tensor sixDofAcceleration(const Tensor &vel, const Tensor &quat,
-                                        double thrust_body, const Config &cfg);
+                                        double thrust_body, const Config &cfg,
+                                        const Tensor *v_wind = nullptr);
 
 /**
  * @brief 转动加速度（欧拉方程）
@@ -81,10 +86,14 @@ namespace oi3 {
  * @param torque      步内机体力矩 {3}（N·m）
  * @param cfg         配置
  * @param dt          步长（秒）
+ * @param v_wind      NED 风速 {3}；nullptr 表示无风
+ *
+ * @note 风速在整个 RK4 步内取常数（步首值）。步长 1 ms 而湍流的时间尺度在秒级，
+ *       步内变化可以忽略；若将来把步长放大到与湍流尺度可比，需要改成按级取值。
  */
 [[nodiscard]] SixDofState rk4StepSixDof(const SixDofState &y, double thrust_body,
                                         const Tensor &torque, const SixDofConfig &cfg,
-                                        double dt);
+                                        double dt, const Tensor *v_wind = nullptr);
 
 } // namespace oi3
 

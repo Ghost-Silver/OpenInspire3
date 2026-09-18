@@ -11,6 +11,7 @@
 #include "SixDofDynamics.h"
 #include "SixDofTypes.h"
 #include "Tensor.h"
+#include "WindModel.h"
 
 namespace oi3 {
 
@@ -38,6 +39,22 @@ class SixDofSimulator {
 
     void reset(SixDofState initial_state);
 
+    /**
+     * @brief 设置风场（不获取所有权，传 nullptr 表示无风）
+     *
+     * 风在每步推进前查询一次并按步内常值处理。无风或风速为零时不构造任何张量，
+     * 因此对既有（无风）仿真的开销为零、结果逐位不变。
+     *
+     * @note 风场对象由调用方持有并管理生命周期；simulator 不会重置它的内部状态。
+     */
+    void setWind(WindModel *wind) { _wind = wind; }
+
+    /// 当前风场（可能为空）
+    [[nodiscard]] WindModel *wind() const { return _wind; }
+
+    /// 当前时刻的风速（无风时返回零向量）
+    [[nodiscard]] WindVec currentWind() const;
+
     [[nodiscard]] const SixDofState &state() const { return _state; }
     [[nodiscard]] const SixDofConfig &config() const { return _config; }
     [[nodiscard]] double time() const { return _time; }
@@ -51,6 +68,7 @@ class SixDofSimulator {
     SixDofState _state;
     double _time = 0.0;
     long long _step_count = 0;
+    WindModel *_wind = nullptr; ///< 非拥有指针
 };
 
 /// 构造水平姿态的单位四元数 (w=1, x=y=z=0)

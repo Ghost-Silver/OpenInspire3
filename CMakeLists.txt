@@ -31,10 +31,12 @@ add_library(oi3_simulator STATIC
         core/simulator/PhysicsEngine/SixDofDynamicsDiff.cpp
         core/simulator/PhysicsEngine/ParameterIdentification.cpp
         core/simulator/PhysicsEngine/SixDofSimulator.cpp
+        core/simulator/PhysicsEngine/WindModel.cpp
         core/control/PidController.cpp
         core/control/ShootingExpert.cpp
         core/control/ShootingMpc.cpp
         core/control/SixDofPidController.cpp
+        core/control/SixDofManualController.cpp
         core/control/ClosedLoop.cpp
         core/control/HoverEnv.cpp
         core/estimation/ImuModel.cpp
@@ -96,6 +98,16 @@ target_compile_options(EstimatorTest PRIVATE -Wall -Wextra)
 target_link_libraries(EstimatorTest PRIVATE oi3_simulator)
 
 # 轨迹跟踪能力实测：定点 PID 用于跟踪时的系统性滞后
+# 打杆机动：手动模式下飞行器对遥控杆量的响应
+add_executable(StickManeuverTest core/control/StickManeuverTest.cpp)
+target_compile_options(StickManeuverTest PRIVATE -Wall -Wextra)
+target_link_libraries(StickManeuverTest PRIVATE oi3_simulator)
+
+# 风洞：常值风/阵风/湍流下的抗风能力实测
+add_executable(WindTunnelTest core/simulator/PhysicsEngine/WindTunnelTest.cpp)
+target_compile_options(WindTunnelTest PRIVATE -Wall -Wextra)
+target_link_libraries(WindTunnelTest PRIVATE oi3_simulator)
+
 add_executable(TrajectoryTrackingTest core/control/TrajectoryTrackingTest.cpp)
 target_compile_options(TrajectoryTrackingTest PRIVATE -Wall -Wextra)
 target_link_libraries(TrajectoryTrackingTest PRIVATE oi3_simulator)

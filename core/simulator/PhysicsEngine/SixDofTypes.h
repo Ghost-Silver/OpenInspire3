@@ -20,6 +20,22 @@
 namespace oi3 {
 
 /**
+ * @struct SixDofCommand
+ * @brief 六自由度控制指令：推力 + 三轴力矩
+ *
+ * 定义在类型头而非某个控制器里 —— 它是各级控制器共同产出的接口类型
+ * （定点 PID、手动模式、将来的学习型控制器都用它），放在具体控制器下会让
+ * 其他控制器不得不反过来包含那个头文件。
+ */
+struct SixDofCommand {
+    double thrust_body = 0.0; ///< 机体 z 轴推力（牛顿，向上为正）
+    Tensor torque;            ///< 机体三轴力矩 {3}（N·m）
+
+    /// 力矩是否已初始化
+    [[nodiscard]] bool valid() const { return torque.numel() == 3; }
+};
+
+/**
  * @struct SixDofState
  * @brief 六自由度状态：平动 + 转动
  *

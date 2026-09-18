@@ -87,6 +87,10 @@ struct ShootingResult {
 
     /// 末段结束时的位置误差（米），用于评估专家质量
     double final_pos_error = 0.0;
+
+    /// 初始位置误差（米）。与 final_pos_error 一起才能判断求解器是否真的改善了
+    /// 轨迹：只有末值无法区分「收敛」与「原地不动」。
+    double initial_pos_error = 0.0;
 };
 
 /**

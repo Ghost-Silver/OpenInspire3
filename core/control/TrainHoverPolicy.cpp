@@ -15,6 +15,7 @@
 #include "ClosedLoop.h"
 #include "ContinuousPPO.h"
 #include "HoverEnv.h"
+#include "ShootingExpert.h"
 #include "PidController.h"
 #include "TensorUtils.h"
 
@@ -213,26 +214,88 @@ int main(int argc, char **argv) {
     {
         std::vector<std::vector<float>> warmup_obs;
         std::vector<std::array<float, 3>> warmup_act;
-        const int warmup_samples = 256;
-        warmup_obs.reserve(warmup_samples);
-        warmup_act.reserve(warmup_samples);
 
-        HoverEnv warm_env(env_cfg, 1234u);
-        std::vector<float> o = warm_env.reset();
-        for (int i = 0; i < warmup_samples; ++i) {
-            warmup_obs.push_back(o);
-            warmup_act.push_back({0.0f, 0.0f, 0.0f});
-            o = warm_env.step({0.0f, 0.0f, 0.0f}).obs;
+        // 两种预热数据源：
+        //  默认          —— 零动作（教策略「维持悬停」这个工作点）
+        //  打靶法专家    —— 用可微动力学求出的最优推力序列（教策略「怎么把偏差纠回来」）
+        // 后者由 OI3_WARMUP_SHOOTING=1 启用，供两者做同配置对照。
+        const bool use_shooting = std::getenv("OI3_WARMUP_SHOOTING") != nullptr;
+        if (use_shooting) {
+            ShootingConfig sc;
+            sc.segments = std::getenv("OI3_WS_SEGMENTS")
+                              ? std::atoi(std::getenv("OI3_WS_SEGMENTS"))
+                              : 25;
+            sc.iters = std::getenv("OI3_WS_ITERS")
+                           ? std::atoi(std::getenv("OI3_WS_ITERS"))
+                           : 15;
+            // 步长按「动作量纲」计。0.2（≈1.57 N）相对最优修正量偏大 ——
+            // 一步就越过最优点，随后符号梯度在两侧交替，净位移接近零，
+            // 表现为「专家末段误差 ≈ 初值」。实测把它降到 0.05 后专家才开始真正收敛。
+            sc.step = std::getenv("OI3_WS_STEP")
+                          ? static_cast<float>(std::atof(std::getenv("OI3_WS_STEP")))
+                          : 0.05f;
+
+            const int states = std::getenv("OI3_WS_SAMPLES")
+                                   ? std::atoi(std::getenv("OI3_WS_SAMPLES"))
+                                   : 12;
+
+            // 采样尺度对齐 curriculum 的第一段（target_range = 0.3），
+            // 否则专家演示会落在策略早期根本见不到的状态上
+            std::mt19937 srng(20260918u);
+            std::normal_distribution<double> pos_noise(0.0, 0.15);
+            std::normal_distribution<double> vel_noise(0.0, 0.15);
+
+            std::cout << "\n行为克隆预热（数据源：打靶法专家，" << states
+                      << " 个初始状态 x " << sc.segments << " 段）...\n";
+            for (int i = 0; i < states; ++i) {
+                const std::array<double, 3> p0 = {pos_noise(srng), pos_noise(srng),
+                                                  pos_noise(srng)};
+                const std::array<double, 3> v0 = {vel_noise(srng), vel_noise(srng),
+                                                  vel_noise(srng)};
+                const std::array<double, 3> tgt = {0.0, 0.0, 0.0};
+                const ShootingResult r = shootHover(p0, v0, tgt, env_cfg, sc);
+                if (!r.finite) {
+                    continue;
+                }
+                const std::size_t n = std::min(r.obs_seq.size(), r.action_seq.size());
+                for (std::size_t k = 0; k < n; ++k) {
+                    warmup_obs.push_back(r.obs_seq[k]);
+                    warmup_act.push_back(r.action_seq[k]);
+                }
+                std::cout << "  专家 " << (i + 1) << "/" << states
+                          << "  位置误差 " << r.initial_pos_error << " -> "
+                          << r.final_pos_error << " m\n";
+            }
+            std::cout << "  共收集 " << warmup_obs.size() << " 条演示（步长 " << sc.step
+                      << "，段数 " << sc.segments << "，迭代 " << sc.iters << "）\n";
+        } else {
+            const int warmup_samples = 256;
+            warmup_obs.reserve(warmup_samples);
+            warmup_act.reserve(warmup_samples);
+
+            HoverEnv warm_env(env_cfg, 1234u);
+            std::vector<float> o = warm_env.reset();
+            for (int i = 0; i < warmup_samples; ++i) {
+                warmup_obs.push_back(o);
+                warmup_act.push_back({0.0f, 0.0f, 0.0f});
+                o = warm_env.step({0.0f, 0.0f, 0.0f}).obs;
+            }
+            std::cout << "\n行为克隆预热（目标：输出零动作 = 维持悬停）...\n";
         }
 
-        std::cout << "\n行为克隆预热（目标：输出零动作 = 维持悬停）...\n";
+        if (warmup_obs.empty()) {
+            std::cerr << "预热数据为空，终止\n";
+            return 3;
+        }
         for (int i = 0; i < 400; ++i) {
             const float loss = agent.behaviorCloneStep(warmup_obs, warmup_act);
             if ((i + 1) % 100 == 0) {
                 std::cout << "  预热 step " << (i + 1) << "  MSE " << loss << std::endl;
             }
         }
-        std::cout << "预热后策略动作均值应接近 0。" << std::endl;
+        if (!use_shooting) {
+            std::cout << "预热后策略动作均值应接近 0。" << std::endl;
+        }
     }
 
     printHeading("训练");

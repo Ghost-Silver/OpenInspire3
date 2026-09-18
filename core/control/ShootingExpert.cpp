@@ -107,12 +107,34 @@ ShootingResult shootHover(const std::array<double, 3> &pos0,
         seg_thrust.push_back(std::move(t));
     }
 
+    // 初始位置误差（与末段误差一起输出，用于判断求解器是否真的在改善 ——
+    // 只看末值无法区分「收敛到最优」与「根本没动」）
+    {
+        const double d0n = pos0[0] - target[0];
+        const double d0e = pos0[1] - target[1];
+        const double d0d = pos0[2] - target[2];
+        result.initial_pos_error = std::sqrt(d0n * d0n + d0e * d0e + d0d * d0d);
+    }
+
     result.obs_seq.assign(static_cast<std::size_t>(segments), {});
     result.action_seq.assign(static_cast<std::size_t>(segments), {});
     result.thrust_seq.assign(static_cast<std::size_t>(segments), {});
 
+    // rollout 的返回类型。
+    //
+    // 这里必须用一个具名结构体 + 移动语义，不能图省事返回 std::make_pair：
+    // Tensor 的**拷贝**构造会重置 autograd 节点（见 CTorch/AutoGrad.h 的说明），
+    // 而 pair 的构造是拷贝 —— 调用方拿到的 cost 与计算图已经断开，
+    // backward 从一个孤立的 GradAccumulator 开始，梯度恒为零、参数从不更新。
+    // 症状极具误导性：专家解看起来「没动」（末段误差 ≈ 初值），而调整步长、
+    // 迭代轮数都毫无效果。用移动构造则保留节点（Tensor 的 move 会 rebind）。
+    struct RolloutOut {
+        Tensor cost;
+        DroneState state;
+    };
+
     // 一次完整滚动：建图并返回代价。record=true 时顺带记录每段起点的观测。
-    auto rollout = [&](bool record) {
+    auto rollout = [&](bool record) -> RolloutOut {
         DroneState st{makeVec3(static_cast<float>(pos0[0]), static_cast<float>(pos0[1]),
                                static_cast<float>(pos0[2])),
                       makeVec3(static_cast<float>(vel0[0]), static_cast<float>(vel0[1]),
@@ -153,7 +175,7 @@ ShootingResult shootHover(const std::array<double, 3> &pos0,
             }
             result.final_pos_error = std::sqrt(e2);
         }
-        return std::make_pair(cost, st);
+        return RolloutOut{std::move(cost), std::move(st)};
     };
 
     // ---- 梯度下降：符号步长 ----
@@ -162,8 +184,8 @@ ShootingResult shootHover(const std::array<double, 3> &pos0,
         for (auto &t : seg_thrust) {
             t.zero_grad();
         }
-        auto [cost, st_unused] = rollout(false);
-        (void)st_unused;
+        RolloutOut step_out = rollout(false);
+        Tensor &cost = step_out.cost;
         last_cost = cost.data<float>()[0];
         if (!std::isfinite(last_cost)) {
             result.finite = false;
@@ -203,9 +225,9 @@ ShootingResult shootHover(const std::array<double, 3> &pos0,
     }
 
     // ---- 用最终参数记录轨迹与动作 ----
-    auto [final_cost, st_final] = rollout(true);
-    (void)st_final;
-    result.cost = static_cast<double>(final_cost.data<float>()[0]);
+    RolloutOut final_out = rollout(true);
+    (void)final_out.state;
+    result.cost = static_cast<double>(final_out.cost.data<float>()[0]);
     result.finite = result.finite && std::isfinite(result.cost);
 
     for (int s = 0; s < segments; ++s) {

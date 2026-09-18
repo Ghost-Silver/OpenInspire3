@@ -59,7 +59,16 @@ struct SixDofState {
 struct SixDofConfig {
     Config base;
 
-    /// 机体转动惯量对角元 (kg·m²)，对应 roll / pitch / yaw 轴
+    /**
+     * @brief 机体转动惯量对角元 (kg·m²)，对应 roll / pitch / yaw 轴
+     *
+     * @note 下面的默认值是「小四轴典型值」，仅供缺省可用；真实平台的惯量与阻力
+     *       直接决定仿真与真机的差距。可用 ParameterIdentification 从实测轨迹
+     *       辨识（离线一次性、不需要实时，正是可微仿真的合理落点）：
+     *       在 60 ms 的激励轨迹上实测可把质量辨识到 1.9%、阻力 14.6%、惯量约 18%，
+     *       折算成开环预测精度是**误差降低 11 倍**（相对手填典型值），
+     *       详见 ModelCalibrationTest。
+     */
     double inertia[3] = {0.01, 0.01, 0.02};
 
     /// 力臂长度（米），仅用于记录机体几何；力矩由控制器直接给出

@@ -96,6 +96,10 @@ add_executable(TrainShootingPolicy core/control/TrainShootingPolicy.cpp)
 target_compile_options(TrainShootingPolicy PRIVATE -Wall -Wextra)
 target_link_libraries(TrainShootingPolicy PRIVATE oi3_simulator)
 
+add_executable(ModelCalibrationTest core/simulator/PhysicsEngine/ModelCalibrationTest.cpp)
+target_compile_options(ModelCalibrationTest PRIVATE -Wall -Wextra)
+target_link_libraries(ModelCalibrationTest PRIVATE oi3_simulator)
+
 add_executable(ParameterIdTest core/simulator/PhysicsEngine/ParameterIdTest.cpp)
 target_compile_options(ParameterIdTest PRIVATE -Wall -Wextra)
 target_link_libraries(ParameterIdTest PRIVATE oi3_simulator)

@@ -264,7 +264,10 @@ int main(int argc, char **argv) {
                 }
                 std::cout << "  专家 " << (i + 1) << "/" << states
                           << "  位置误差 " << r.initial_pos_error << " -> "
-                          << r.final_pos_error << " m\n";
+                          << r.final_pos_error << " m   代价 " << r.cost
+                          << "   窗口 " << (sc.segments * env_cfg.control_decimation *
+                                            env_cfg.plant.dt)
+                          << " s\n";
             }
             std::cout << "  共收集 " << warmup_obs.size() << " 条演示（步长 " << sc.step
                       << "，段数 " << sc.segments << "，迭代 " << sc.iters << "）\n";

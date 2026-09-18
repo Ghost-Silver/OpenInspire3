@@ -178,48 +178,129 @@ ShootingResult shootHover(const std::array<double, 3> &pos0,
         return RolloutOut{std::move(cost), std::move(st)};
     };
 
-    // ---- 梯度下降：符号步长 ----
-    float last_cost = 0.0f;
-    for (int it = 0; it < sc.iters; ++it) {
-        for (auto &t : seg_thrust) {
-            t.zero_grad();
+    // ---- 优化：归一化梯度 + 回溯线搜索 ----
+    //
+    // 起初这里用的是「符号梯度 + 固定步长」，它在本问题上**不收敛**：符号梯度每步
+    // 移动的距离与梯度无关（固定为 step × scale），一旦接近最优点，很小的梯度仍然
+    // 对应同样大的位移，于是解在最优点两侧反复横跳，净位移趋于零。实测把迭代数从
+    // 15 加到 200 毫无改善（末段误差 0.3600 / 0.3719 / 0.3719 m），正是这个原因。
+    //
+    // 现在改为：
+    //   1. 方向取**归一化梯度**（g / |g|）—— 各维同量纲（都是力），整体方向比逐维
+    //      符号更能表达「往哪走」，也不受梯度绝对尺度影响；
+    //   2. 步长用**回溯线搜索**（试探 → 代价下降则接受并略增，否则回退并减半）——
+    //      这样不需要预知梯度量级，且**保证代价单调不增**，从根本上排除震荡；
+    //   3. 收敛判据改为「步长缩到阈值以下」或「代价相对下降低于阈值」，
+    //      而不是「跑满固定迭代数」。
+    //
+    // 推力始终约束在**动作可表达的范围内**（hover ± scale，对应 action ∈ [-1,1]）：
+    // 打靶法本身只关心代价，会给出远超动作范围的解；而策略经动作输出时超出部分会
+    // 在环境里被限幅，于是专家演示与策略实际能执行的动作系统性不一致，行为克隆
+    // 学到饱和动作、闭环发散（实测末端误差从 0.5 m 恶化到 3.6 m）。
+    const double hover_ref[3] = {0.0, 0.0, hover_d};
+    auto clampToActionRange = [&](Tensor &t) {
+        float *v = t.data_write<float>();
+        for (int i = 0; i < 3; ++i) {
+            const double lo = hover_ref[i] - scale;
+            const double hi = hover_ref[i] + scale;
+            v[i] = static_cast<float>(std::max(lo, std::min(hi, static_cast<double>(v[i]))));
         }
-        RolloutOut step_out = rollout(false);
-        Tensor &cost = step_out.cost;
-        last_cost = cost.data<float>()[0];
-        if (!std::isfinite(last_cost)) {
+    };
+
+    // 参数快照（回溯失败时回退用）
+    std::vector<std::array<float, 3>> snapshot(static_cast<std::size_t>(segments));
+    auto saveParams = [&]() {
+        for (int s = 0; s < segments; ++s) {
+            const std::vector<float> tv = toVector(seg_thrust[static_cast<std::size_t>(s)]);
+            snapshot[static_cast<std::size_t>(s)] = {tv[0], tv[1], tv[2]};
+        }
+    };
+    auto restoreParams = [&]() {
+        for (int s = 0; s < segments; ++s) {
+            float *v = seg_thrust[static_cast<std::size_t>(s)].data_write<float>();
+            const auto &sn = snapshot[static_cast<std::size_t>(s)];
+            v[0] = sn[0];
+            v[1] = sn[1];
+            v[2] = sn[2];
+        }
+    };
+
+    double step = static_cast<double>(sc.step) * scale; // 初始步长（牛顿）
+    double cur_cost = 0.0;
+    {
+        RolloutOut out0 = rollout(false);
+        cur_cost = static_cast<double>(out0.cost.data<float>()[0]);
+        if (!std::isfinite(cur_cost)) {
             result.finite = false;
             return result;
         }
+    }
 
-        AutoGrad::backward(cost.getRelatedNode(), false);
+    const double step_min = 1e-4 * scale;      // 步长下界 → 视为收敛
+    const double rel_tol = 1e-5;               // 代价相对下降阈值
 
+    for (int it = 0; it < sc.iters; ++it) {
+        // 1) 求梯度方向
+        for (auto &t : seg_thrust) {
+            t.zero_grad();
+        }
+        RolloutOut grad_out = rollout(false);
+        Tensor &cost_for_grad = grad_out.cost;
+        if (!std::isfinite(cost_for_grad.data<float>()[0])) {
+            result.finite = false;
+            return result;
+        }
+        AutoGrad::backward(cost_for_grad.getRelatedNode(), false);
+
+        // 归一化梯度方向（整体归一，保留各维相对比例）
+        double norm2 = 0.0;
         for (int s = 0; s < segments; ++s) {
-            Tensor &t = seg_thrust[static_cast<std::size_t>(s)];
-            const float *gr = t.grad_ptr();
+            const float *gr = seg_thrust[static_cast<std::size_t>(s)].grad_ptr();
             if (gr == nullptr) {
                 continue;
             }
-            float *v = t.data_write<float>();
             for (int i = 0; i < 3; ++i) {
-                if (!std::isfinite(gr[i])) {
-                    continue;
+                if (std::isfinite(gr[i])) {
+                    norm2 += static_cast<double>(gr[i]) * gr[i];
                 }
-                const float dir = (gr[i] > 0.0f) ? 1.0f : ((gr[i] < 0.0f) ? -1.0f : 0.0f);
-                v[i] -= sc.step * static_cast<float>(scale) * dir;
             }
-            // 把推力约束在**动作能够表达的范围内**（hover ± scale，对应 action ∈ [-1,1]）。
-            //
-            // 这一步不可省：打靶法本身只关心代价，符号步长累积起来会给出远超动作
-            // 范围的推力；而策略经动作输出，超出部分会在环境里被限幅 —— 于是专家
-            // 演示与策略实际能执行的动作**系统性不一致**，行为克隆学到的是饱和动作，
-            // 闭环直接发散（实测：末端误差从 0.5 m 恶化到 3.6 m）。
-            // 约束范围而非事后检查：让专家只在可执行的解空间里寻优。
-            const double hover[3] = {0.0, 0.0, hover_d};
+        }
+        if (!(norm2 > 0.0)) {
+            break; // 梯度为零 → 已到驻点
+        }
+        const double inv_norm = 1.0 / std::sqrt(norm2);
+
+        // 2) 试探步
+        saveParams();
+        for (int s = 0; s < segments; ++s) {
+            Tensor &t = seg_thrust[static_cast<std::size_t>(s)];
+            const float *gr = t.grad_ptr();
+            float *v = t.data_write<float>();
+            if (gr == nullptr) {
+                continue;
+            }
             for (int i = 0; i < 3; ++i) {
-                const double lo = hover[i] - scale;
-                const double hi = hover[i] + scale;
-                v[i] = static_cast<float>(std::max(lo, std::min(hi, static_cast<double>(v[i]))));
+                const double g = std::isfinite(gr[i]) ? static_cast<double>(gr[i]) : 0.0;
+                v[i] = static_cast<float>(static_cast<double>(v[i]) - step * g * inv_norm);
+            }
+            clampToActionRange(t);
+        }
+
+        RolloutOut trial_out = rollout(false);
+        const double trial_cost = static_cast<double>(trial_out.cost.data<float>()[0]);
+
+        if (std::isfinite(trial_cost) && trial_cost < cur_cost) {
+            const double rel = (cur_cost - trial_cost) / std::max(1e-12, std::abs(cur_cost));
+            cur_cost = trial_cost;
+            step *= 1.2; // 成功 → 略增，加快后续推进
+            if (rel < rel_tol) {
+                break; // 代价已基本不再下降
+            }
+        } else {
+            restoreParams(); // 失败 → 回退并减半
+            step *= 0.5;
+            if (step < step_min) {
+                break; // 步长缩到阈值以下 → 收敛
             }
         }
     }

@@ -158,6 +158,40 @@ SixDofCommand SixDofPidController::compute(const SixDofState &state, const Tenso
     return solveCommand(_cfg, _gains, _att_kp, _att_kd, state, a_des, _last_tilt_deg);
 }
 
+SixDofCommand SixDofPidController::computeWithWind(const SixDofState &state,
+                                                    const Tensor &target,
+                                                    const std::array<double, 3> &v_wind,
+                                                    double /*time*/) {
+    const double m = _cfg.base.mass;
+
+    const V3d pos = readV3(state.pos);
+    const V3d vel = readV3(state.vel);
+    const V3d tgt = readV3(target);
+
+    // 风阻前馈：稳态下相对气流 v_rel = −v_wind，故阻力
+    //   F = −k·|v_rel|·v_rel = k·|v_wind|·v_wind   （方向与风同，把飞行器吹走）
+    // 要抵消它，需要大小相等方向相反的加速度。
+    const double k = _cfg.base.drag_coeff;
+    V3d a_ff{0.0, 0.0, 0.0};
+    if (k > 0.0) {
+        const double sp = std::sqrt(v_wind[0] * v_wind[0] + v_wind[1] * v_wind[1] +
+                                    v_wind[2] * v_wind[2]);
+        a_ff = {-k * sp * v_wind[0] / m, -k * sp * v_wind[1] / m, -k * sp * v_wind[2] / m};
+    }
+
+    const V3d e_pos{tgt.x - pos.x, tgt.y - pos.y, tgt.z - pos.z};
+    const double raw[3] = {
+        a_ff.x + _gains.pos_kp * e_pos.x + _gains.pos_kd * (-vel.x),
+        a_ff.y + _gains.pos_kp * e_pos.y + _gains.pos_kd * (-vel.y),
+        a_ff.z + _gains.pos_kp * e_pos.z + _gains.pos_kd * (-vel.z),
+    };
+    const V3d a_des{clampd(raw[0], -_gains.max_accel, _gains.max_accel),
+                    clampd(raw[1], -_gains.max_accel, _gains.max_accel),
+                    clampd(raw[2], -_gains.max_accel, _gains.max_accel)};
+
+    return solveCommand(_cfg, _gains, _att_kp, _att_kd, state, a_des, _last_tilt_deg);
+}
+
 SixDofCommand SixDofPidController::computeTracking(const SixDofState &state,
                                                    const SixDofSetpoint &ref,
                                                    double /*time*/) {

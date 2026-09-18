@@ -138,6 +138,37 @@ class SixDofPidController : public SixDofController {
                                         double time) override;
 
     /**
+     * @brief 带风扰动前馈的定点控制律
+     *
+     * @param state  当前状态
+     * @param target 目标位置 {3}
+     * @param v_wind NED 风速 {3}（由风速估计给出；真实飞控有这一路信息）
+     * @param time   仿真时刻
+     *
+     * @par 它补的是什么
+     *
+     * 定点 PID 对风是**被动响应**：只能靠位置误差感知风的存在，因此必然产生
+     * 稳态偏移 `e = k·|v_wind|²/(m·kp)`（实测 8 m/s 风时 0.784 m，与解析式
+     * 吻合到四位小数）。
+     *
+     * 但风速**是可测的**。既然已知扰动的大小与方向，就没有理由等它把飞行器
+     * 推偏之后再去纠正 —— 直接前馈掉：
+     *
+     * @verbatim
+     *   F_wind = k·|v_wind|·v_wind          （稳态时 v_rel = −v_wind）
+     *   a_ff   = −F_wind / m
+     *   a_des  = a_ff + kp·(p_ref − p) + kd·(0 − v)
+     * @endverbatim
+     *
+     * 这就是「被动抗风」与「主动抗风」的差别。本方法提供解析前馈基线，
+     * 用于量化这一差距 —— 它同时也是判断「风补偿任务上学习有没有空间」的
+     * 基准：解析式只能补偿**均值**，湍流的波动部分它管不了。
+     */
+    [[nodiscard]] SixDofCommand computeWithWind(const SixDofState &state, const Tensor &target,
+                                                const std::array<double, 3> &v_wind,
+                                                double time);
+
+    /**
      * @brief 轨迹跟踪控制律（带参考速度与加速度前馈）
      *
      * 与 compute 的区别只在期望加速度的算法：定点版本把期望速度当作零，

@@ -115,6 +115,11 @@ add_executable(StickManeuverTest core/control/StickManeuverTest.cpp)
 target_compile_options(StickManeuverTest PRIVATE -Wall -Wextra)
 target_link_libraries(StickManeuverTest PRIVATE oi3_simulator)
 
+# 被动抗风 vs 主动抗风：解析前馈的效果与「学习空间」的量化
+add_executable(WindFeedforwardTest core/simulator/PhysicsEngine/WindFeedforwardTest.cpp)
+target_compile_options(WindFeedforwardTest PRIVATE -Wall -Wextra)
+target_link_libraries(WindFeedforwardTest PRIVATE oi3_simulator)
+
 # 风洞：常值风/阵风/湍流下的抗风能力实测
 add_executable(WindTunnelTest core/simulator/PhysicsEngine/WindTunnelTest.cpp)
 target_compile_options(WindTunnelTest PRIVATE -Wall -Wextra)

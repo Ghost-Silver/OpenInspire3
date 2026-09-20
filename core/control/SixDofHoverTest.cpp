@@ -84,7 +84,7 @@ void testTiltedThrust(const SixDofConfig &cfg) {
     s.omega = makeVec3(0.0f, 0.0f, 0.0f);
 
     // 推力取 m*g：倾斜后竖直分量只剩 cos(30°)，不足以完全抵消重力
-    const Tensor a = sixDofAcceleration(s.vel, s.quat, m * g, cfg.base);
+    const Tensor a = sixDofAcceleration(s.vel, s.quat, m * g, cfg);
     const std::vector<float> av = toVector(a);
 
     // 解析解：a = [ -g·sinθ, 0, g·(1 − cosθ) ]
@@ -101,7 +101,7 @@ void testTiltedThrust(const SixDofConfig &cfg) {
     // 水平姿态时推力应恰好抵消重力，加速度为零
     SixDofState level = s;
     level.quat = identityQuat();
-    const Tensor a_level = sixDofAcceleration(level.vel, level.quat, m * g, cfg.base);
+    const Tensor a_level = sixDofAcceleration(level.vel, level.quat, m * g, cfg);
     const std::vector<float> al = toVector(a_level);
     check("水平悬停 a_n = 0", al[0], 0.0, 1e-5);
     check("水平悬停 a_e = 0", al[1], 0.0, 1e-5);

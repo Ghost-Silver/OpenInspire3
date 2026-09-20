@@ -115,6 +115,11 @@ add_executable(StickManeuverTest core/control/StickManeuverTest.cpp)
 target_compile_options(StickManeuverTest PRIVATE -Wall -Wextra)
 target_link_libraries(StickManeuverTest PRIVATE oi3_simulator)
 
+# 未建模气动造成的模型失配：学习空间是否存在的判据
+add_executable(AeroMismatchTest core/simulator/PhysicsEngine/AeroMismatchTest.cpp)
+target_compile_options(AeroMismatchTest PRIVATE -Wall -Wextra)
+target_link_libraries(AeroMismatchTest PRIVATE oi3_simulator)
+
 # 被动抗风 vs 主动抗风：解析前馈的效果与「学习空间」的量化
 add_executable(WindFeedforwardTest core/simulator/PhysicsEngine/WindFeedforwardTest.cpp)
 target_compile_options(WindFeedforwardTest PRIVATE -Wall -Wextra)

@@ -177,14 +177,22 @@ SixDofCommand SixDofPidController::computeWithWind(const SixDofState &state,
     // 第一版写的是 a_ff = −k·|v_wind|·v_wind / m，即把 v_rel 简化成了 −v_wind。
     // 那个式子在**稳态静止**时与上式等价，但飞行器一旦有速度（湍流下始终如此）
     // 就会失配 —— 等于把一个本身带建模误差的基线当成对照，让后续比较失去意义。
-    const double k = _cfg.base.drag_coeff;
+    // 阻力系数：优先使用各轴异性（若启用），否则回退到标量。
+    // 未支持异性之前，前馈恒按各向同性补偿 —— 于是「把真实气动告诉控制器」
+    // 这一操作形同虚设（两种配置下误差逐位相同），第 4 段判据因而失效。
+    const bool use_axis = _cfg.drag_coeff_axis[0] > 0.0 && _cfg.drag_coeff_axis[1] > 0.0 &&
+                          _cfg.drag_coeff_axis[2] > 0.0;
+    const double kx = use_axis ? _cfg.drag_coeff_axis[0] : _cfg.base.drag_coeff;
+    const double ky = use_axis ? _cfg.drag_coeff_axis[1] : _cfg.base.drag_coeff;
+    const double kz = use_axis ? _cfg.drag_coeff_axis[2] : _cfg.base.drag_coeff;
+
     V3d a_ff{0.0, 0.0, 0.0};
-    if (k > 0.0) {
+    if (_cfg.base.drag_coeff > 0.0 || use_axis) {
         const double rx = vel.x - v_wind[0];
         const double ry = vel.y - v_wind[1];
         const double rz = vel.z - v_wind[2];
         const double sp = std::sqrt(rx * rx + ry * ry + rz * rz);
-        a_ff = {k * sp * rx / m, k * sp * ry / m, k * sp * rz / m};
+        a_ff = {kx * sp * rx / m, ky * sp * ry / m, kz * sp * rz / m};
     }
 
     const V3d e_pos{tgt.x - pos.x, tgt.y - pos.y, tgt.z - pos.z};

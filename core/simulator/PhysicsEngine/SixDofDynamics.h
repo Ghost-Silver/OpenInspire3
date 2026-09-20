@@ -59,7 +59,7 @@ namespace oi3 {
  * 阻力小，逆风时阻力大。这是风对飞行器作用的核心机制，也是抗风能力分析的起点。
  */
 [[nodiscard]] Tensor sixDofAcceleration(const Tensor &vel, const Tensor &quat,
-                                        double thrust_body, const Config &cfg,
+                                        double thrust_body, const SixDofConfig &cfg,
                                         const Tensor *v_wind = nullptr);
 
 /**

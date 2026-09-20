@@ -116,30 +116,63 @@ Tensor quatToEuler(const Tensor &quat) {
 }
 
 Tensor sixDofAcceleration(const Tensor &vel, const Tensor &quat, double thrust_body,
-                          const Config &cfg, const Tensor *v_wind) {
-    const double m = cfg.mass;
-    const double g = cfg.gravity;
+                          const SixDofConfig &cfg, const Tensor *v_wind) {
+    const double m = cfg.base.mass;
+    const double g = cfg.base.gravity;
 
     // 重力（NED 系向下为正）
     const Tensor f_gravity = makeVec3(0.0f, 0.0f, static_cast<float>(m * g));
 
-    // 推力沿机体 -z：机体 z 轴朝上，故正向推力对应机体系的 -z 分量。
-    // 姿态水平时旋转矩阵为单位阵，推力为 [0,0,-T]，恰好抵消重力。
-    const Tensor f_thrust_body = makeVec3(0.0f, 0.0f, static_cast<float>(-thrust_body));
+    // ---- 桨盘入流修正 ----
+    //
+    // 推力取决于桨盘处的相对气流，而非指令值。轴向（机体 z）相对气流速度越大，
+    // 桨叶有效迎角越小，实际推力越低。
+    //
+    // 关闭时（两个系数均为 0）下面的 thrust_eff 与 thrust_body 完全相等，
+    // 且因为不引入任何额外运算，既有结果逐位不变。
+    double thrust_eff = thrust_body;
+    if (cfg.inflow_linear != 0.0 || cfg.inflow_quad != 0.0) {
+        Tensor v_body = rotateNedToBody(quat, vel);
+        if (v_wind != nullptr) {
+            // 相对气流要在机体系求差：风是 NED 量，先转到机体再相减
+            v_body = v_body - rotateNedToBody(quat, *v_wind);
+        }
+        const float *vb = v_body.data<float>();
+        const double v_axial = vb[2]; // 机体 z 向速度（机体系）
+        const double corr = cfg.inflow_linear * v_axial +
+                            cfg.inflow_quad * v_axial * std::fabs(v_axial);
+        thrust_eff = thrust_body * (1.0 - corr);
+    }
+
+    const Tensor f_thrust_body = makeVec3(0.0f, 0.0f, static_cast<float>(-thrust_eff));
     const Tensor f_thrust_ned = rotateBodyToNed(quat, f_thrust_body);
 
     Tensor f_total = f_gravity + f_thrust_ned;
 
-    // 气动阻力（NED 系，逐轴二次形式，与三自由度版本口径一致）。
-    // 有风时按**相对气流**计算：v_rel = v − v_wind。无风时 v_wind 为空，
-    // 表达式与改造前逐字相同，因此所有既有结果逐位不变。
-    if (cfg.drag_coeff > 0.0) {
+    // ---- 气动阻力 ----
+    //
+    // 有风时按**相对气流**计算：v_rel = v − v_wind。无风时 v_wind 为空。
+    // 两条路径（标量各向同性 / 逐轴异性）在关闭未建模效应时与改造前逐字相同。
+    const bool use_axis = cfg.drag_coeff_axis[0] > 0.0 && cfg.drag_coeff_axis[1] > 0.0 &&
+                          cfg.drag_coeff_axis[2] > 0.0;
+    if (use_axis) {
+        // 逐轴异性：各轴阻力系数不同（机身扁平，垂直方向明显更大）
         Tensor v_rel = vel;
         if (v_wind != nullptr) {
             v_rel = vel - *v_wind;
         }
         const Tensor abs_vel = v_rel.abs();
-        f_total = f_total + (abs_vel * v_rel) * static_cast<float>(-cfg.drag_coeff);
+        const Tensor kvec = makeVec3(static_cast<float>(cfg.drag_coeff_axis[0]),
+                                     static_cast<float>(cfg.drag_coeff_axis[1]),
+                                     static_cast<float>(cfg.drag_coeff_axis[2]));
+        f_total = f_total + (abs_vel * v_rel * kvec) * (-1.0f);
+    } else if (cfg.base.drag_coeff > 0.0) {
+        Tensor v_rel = vel;
+        if (v_wind != nullptr) {
+            v_rel = vel - *v_wind;
+        }
+        const Tensor abs_vel = v_rel.abs();
+        f_total = f_total + (abs_vel * v_rel) * static_cast<float>(-cfg.base.drag_coeff);
     }
 
     return f_total / static_cast<float>(m);
@@ -197,7 +230,7 @@ SixDofState rk4StepSixDof(const SixDofState &y, double thrust_body, const Tensor
     const auto derivative = [&](const SixDofState &s) -> SixDofState {
         return SixDofState{
             s.vel,                                                    // dpos/dt = vel
-            sixDofAcceleration(s.vel, s.quat, thrust_body, cfg.base, v_wind), // dvel/dt
+            sixDofAcceleration(s.vel, s.quat, thrust_body, cfg, v_wind), // dvel/dt
             quatDerivative(s.quat, s.omega),                           // dquat/dt
             angularAcceleration(s.omega, torque, cfg)};                // domega/dt
     };

@@ -195,6 +195,24 @@ SixDofCommand SixDofPidController::computeWithWind(const SixDofState &state,
         a_ff = {kx * sp * rx / m, ky * sp * ry / m, kz * sp * rz / m};
     }
 
+    // 桨盘入流补偿：实际推力 T_eff = T·(1 − mu·v_axial)，指令推力被入流打了
+    // 折扣，故需补足。以 T ≈ m·g 近似（悬停时误差很小），则
+    //     Δa_z ≈ −g·mu·v_axial    （NED z 向下为正，负号表示向上补偿）
+    //
+    // 没有这一项时，即便把真实的 inflow 系数写进配置，前馈也完全不补偿 ——
+    // 「Oracle」与「无知」的误差会逐位相同，学习空间因而被误判为零。
+    if (_cfg.inflow_linear != 0.0 || _cfg.inflow_quad != 0.0) {
+        const Tensor wind_ned =
+            makeVec3(static_cast<float>(v_wind[0]), static_cast<float>(v_wind[1]),
+                     static_cast<float>(v_wind[2]));
+        const Tensor rel_body = rotateNedToBody(state.quat, state.vel - wind_ned);
+        const float *rb = rel_body.data<float>();
+        const double v_axial = rb[2];
+        const double corr = _cfg.inflow_linear * v_axial +
+                            _cfg.inflow_quad * v_axial * std::fabs(v_axial);
+        a_ff.z -= _cfg.base.gravity * corr;
+    }
+
     const V3d e_pos{tgt.x - pos.x, tgt.y - pos.y, tgt.z - pos.z};
     const double raw[3] = {
         a_ff.x + _gains.pos_kp * e_pos.x + _gains.pos_kd * (-vel.x),

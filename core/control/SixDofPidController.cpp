@@ -168,15 +168,23 @@ SixDofCommand SixDofPidController::computeWithWind(const SixDofState &state,
     const V3d vel = readV3(state.vel);
     const V3d tgt = readV3(target);
 
-    // 风阻前馈：稳态下相对气流 v_rel = −v_wind，故阻力
-    //   F = −k·|v_rel|·v_rel = k·|v_wind|·v_wind   （方向与风同，把飞行器吹走）
-    // 要抵消它，需要大小相等方向相反的加速度。
+    // 风阻前馈。气动力取决于**相对气流**，因此必须用飞行器速度与风速之差：
+    //
+    //   v_rel = v_aircraft − v_wind
+    //   F_aero = −k·|v_rel|·v_rel        （作用在机身上，把它推走）
+    //   a_ff   = −F_aero / m = +k·|v_rel|·v_rel / m
+    //
+    // 第一版写的是 a_ff = −k·|v_wind|·v_wind / m，即把 v_rel 简化成了 −v_wind。
+    // 那个式子在**稳态静止**时与上式等价，但飞行器一旦有速度（湍流下始终如此）
+    // 就会失配 —— 等于把一个本身带建模误差的基线当成对照，让后续比较失去意义。
     const double k = _cfg.base.drag_coeff;
     V3d a_ff{0.0, 0.0, 0.0};
     if (k > 0.0) {
-        const double sp = std::sqrt(v_wind[0] * v_wind[0] + v_wind[1] * v_wind[1] +
-                                    v_wind[2] * v_wind[2]);
-        a_ff = {-k * sp * v_wind[0] / m, -k * sp * v_wind[1] / m, -k * sp * v_wind[2] / m};
+        const double rx = vel.x - v_wind[0];
+        const double ry = vel.y - v_wind[1];
+        const double rz = vel.z - v_wind[2];
+        const double sp = std::sqrt(rx * rx + ry * ry + rz * rz);
+        a_ff = {k * sp * rx / m, k * sp * ry / m, k * sp * rz / m};
     }
 
     const V3d e_pos{tgt.x - pos.x, tgt.y - pos.y, tgt.z - pos.z};

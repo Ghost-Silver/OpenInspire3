@@ -115,6 +115,11 @@ add_executable(StickManeuverTest core/control/StickManeuverTest.cpp)
 target_compile_options(StickManeuverTest PRIVATE -Wall -Wextra)
 target_link_libraries(StickManeuverTest PRIVATE oi3_simulator)
 
+# 频域分析：闭环频响与稳定裕度
+add_executable(FrequencyResponseTest core/control/FrequencyResponseTest.cpp)
+target_compile_options(FrequencyResponseTest PRIVATE -Wall -Wextra)
+target_link_libraries(FrequencyResponseTest PRIVATE oi3_simulator)
+
 # 残差可学性检查与 Oracle 基线
 add_executable(ResidualLearnabilityTest core/simulator/PhysicsEngine/ResidualLearnabilityTest.cpp)
 target_compile_options(ResidualLearnabilityTest PRIVATE -Wall -Wextra)

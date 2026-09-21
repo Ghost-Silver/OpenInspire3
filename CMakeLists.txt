@@ -115,6 +115,11 @@ add_executable(StickManeuverTest core/control/StickManeuverTest.cpp)
 target_compile_options(StickManeuverTest PRIVATE -Wall -Wextra)
 target_link_libraries(StickManeuverTest PRIVATE oi3_simulator)
 
+# 微分平坦前馈：推力、姿态与角速度的解析映射
+add_executable(FlatnessTest core/control/FlatnessTest.cpp)
+target_compile_options(FlatnessTest PRIVATE -Wall -Wextra)
+target_link_libraries(FlatnessTest PRIVATE oi3_simulator)
+
 # 延迟与执行机构动态：带宽的安全边界
 add_executable(DelayMarginTest core/control/DelayMarginTest.cpp)
 target_compile_options(DelayMarginTest PRIVATE -Wall -Wextra)

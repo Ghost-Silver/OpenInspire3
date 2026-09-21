@@ -10,6 +10,8 @@
 
 #include "SixDofDynamics.h"
 #include "SixDofTypes.h"
+
+#include <array>
 #include "Tensor.h"
 #include "WindModel.h"
 
@@ -60,15 +62,50 @@ class SixDofSimulator {
     [[nodiscard]] double time() const { return _time; }
     [[nodiscard]] long long stepCount() const { return _step_count; }
 
+    /**
+     * @brief 控制器实际看到的状态（含传感器延迟）
+     *
+     * 无延迟配置（`sensor_delay <= 0` 且 `sensor_rate_ratio <= 0`）时返回真值，
+     * 与 `state()` 完全一致 —— 保证既有调用方行为不变。
+     *
+     * 有延迟时返回历史缓冲中对应时刻的状态。这是**控制器侧**该用的接口：
+     * 真机上控制器拿不到当前真值，只能拿到若干毫秒前的测量。
+     */
+    [[nodiscard]] const SixDofState &observedState() const;
+
+    /// 当前执行机构实际输出的推力（含一阶滞后与速率限幅）
+    [[nodiscard]] double actuatorThrust() const { return _act_thrust; }
+
+    /// 当前执行机构实际输出的力矩
+    [[nodiscard]] const Tensor &actuatorTorque() const { return _act_torque; }
+
     /// 打印当前位置、速度与姿态（欧拉角，便于阅读）
     void print() const;
 
   private:
+    /// 推进执行机构动态（一阶滞后 + 速率限幅）；关闭时直接透传
+    void advanceActuator(double thrust_cmd, const Tensor &torque_cmd);
+    /// 把当前真值推入历史缓冲（供传感器延迟读取）
+    void pushHistory();
+
     SixDofConfig _config;
     SixDofState _state;
     double _time = 0.0;
     long long _step_count = 0;
     WindModel *_wind = nullptr; ///< 非拥有指针
+
+    // ---- 执行机构状态 ----
+    double _act_thrust = 0.0;  ///< 实际推力（一阶滞后后的值）
+    Tensor _act_torque;        ///< 实际力矩
+    bool _act_initialized = false;
+
+    // ---- 传感器延迟历史缓冲 ----
+    //
+    // 环形缓冲存最近若干个状态快照。容量按最大延迟需求分配（默认 64 步，
+    // 在 1 kHz 下覆盖 64 ms，足以容纳 IMU 滤波 + 总线 + 解算的典型延迟）。
+    static constexpr int kHistoryCap = 64;
+    std::array<SixDofState, kHistoryCap> _history{};
+    int _history_count = 0;
 };
 
 /// 构造水平姿态的单位四元数 (w=1, x=y=z=0)

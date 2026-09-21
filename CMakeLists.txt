@@ -115,6 +115,11 @@ add_executable(StickManeuverTest core/control/StickManeuverTest.cpp)
 target_compile_options(StickManeuverTest PRIVATE -Wall -Wextra)
 target_link_libraries(StickManeuverTest PRIVATE oi3_simulator)
 
+# 延迟与执行机构动态：带宽的安全边界
+add_executable(DelayMarginTest core/control/DelayMarginTest.cpp)
+target_compile_options(DelayMarginTest PRIVATE -Wall -Wextra)
+target_link_libraries(DelayMarginTest PRIVATE oi3_simulator)
+
 # 频域分析：闭环频响与稳定裕度
 add_executable(FrequencyResponseTest core/control/FrequencyResponseTest.cpp)
 target_compile_options(FrequencyResponseTest PRIVATE -Wall -Wextra)

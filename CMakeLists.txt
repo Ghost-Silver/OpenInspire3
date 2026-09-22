@@ -115,6 +115,11 @@ add_executable(StickManeuverTest core/control/StickManeuverTest.cpp)
 target_compile_options(StickManeuverTest PRIVATE -Wall -Wextra)
 target_link_libraries(StickManeuverTest PRIVATE oi3_simulator)
 
+# 平坦前馈接入：角速度前馈对机动性的影响
+add_executable(FlatFeedforwardTest core/control/FlatFeedforwardTest.cpp)
+target_compile_options(FlatFeedforwardTest PRIVATE -Wall -Wextra)
+target_link_libraries(FlatFeedforwardTest PRIVATE oi3_simulator)
+
 # 微分平坦前馈：推力、姿态与角速度的解析映射
 add_executable(FlatnessTest core/control/FlatnessTest.cpp)
 target_compile_options(FlatnessTest PRIVATE -Wall -Wextra)

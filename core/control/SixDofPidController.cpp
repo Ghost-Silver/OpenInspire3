@@ -247,7 +247,42 @@ SixDofCommand SixDofPidController::computeTracking(const SixDofState &state,
                     clampd(raw[1], -_gains.max_accel, _gains.max_accel),
                     clampd(raw[2], -_gains.max_accel, _gains.max_accel)};
 
-    return solveCommand(_cfg, _gains, _att_kp, _att_kd, state, a_des, _last_tilt_deg);
+    SixDofCommand cmd =
+        solveCommand(_cfg, _gains, _att_kp, _att_kd, state, a_des, _last_tilt_deg);
+
+    // ---- 平坦前馈：角速度参考 ----
+    //
+    // 姿态环原本的阻尼项是 `−kd·ω`，语义是「把角速度阻尼到零」—— 这对定点
+    // 悬停成立，对机动飞行则是在**持续对抗**机身本该有的转动。目标律是
+    //
+    //     τ = kp·e − kd·(ω − ω_des)
+    //
+    // 而 solveCommand 已给出 `τ_old = kp·e − kd·ω`，故**增量恰为 `+kd·ω_des`**。
+    // （写成 `+kd·(ω_des − ω)` 会多减一次 kd·ω、把阻尼翻倍，实测使跟踪误差
+    // 反而放大 5 倍，且误差与振幅成正比 —— 常值滞后的典型指纹。）
+    //
+    // 关闭开关或参考未提供 jerk 时 ω_des 为零，增量为零，行为与改造前逐位相同。
+    if (_gains.use_flat_omega_feedforward) {
+        FlatReference fr;
+        fr.pos = ref.pos;
+        fr.vel = ref.vel;
+        fr.acc = ref.acc;
+        fr.jerk = ref.jerk;
+        fr.yaw = ref.yaw;
+        fr.yaw_rate = ref.yaw_rate;
+
+        const FlatOutput fo = computeFlatFeedforward(fr, _cfg.base.mass, _cfg.base.gravity);
+        if (fo.valid) {
+            const float *tq = cmd.torque.data<float>();
+            const std::array<float, 3> tnew{
+                static_cast<float>(tq[0] + _att_kd[0] * fo.omega[0]),
+                static_cast<float>(tq[1] + _att_kd[1] * fo.omega[1]),
+                static_cast<float>(tq[2] + _att_kd[2] * fo.omega[2])};
+            cmd.torque = makeVec3(tnew[0], tnew[1], tnew[2]);
+        }
+    }
+
+    return cmd;
 }
 
 } // namespace oi3

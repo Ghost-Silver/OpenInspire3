@@ -135,6 +135,11 @@ add_executable(FrequencyResponseTest core/control/FrequencyResponseTest.cpp)
 target_compile_options(FrequencyResponseTest PRIVATE -Wall -Wextra)
 target_link_libraries(FrequencyResponseTest PRIVATE oi3_simulator)
 
+# 在线参数估计（递推最小二乘）
+add_executable(OnlineIdTest core/simulator/PhysicsEngine/OnlineIdTest.cpp)
+target_compile_options(OnlineIdTest PRIVATE -Wall -Wextra)
+target_link_libraries(OnlineIdTest PRIVATE oi3_simulator)
+
 # 残差重新量化：当前基线上还剩多少可学
 add_executable(ResidualDiagnosticTest core/simulator/PhysicsEngine/ResidualDiagnosticTest.cpp)
 target_compile_options(ResidualDiagnosticTest PRIVATE -Wall -Wextra)

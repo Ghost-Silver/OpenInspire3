@@ -76,6 +76,18 @@ class SixDofSimulator {
     /// 当前执行机构实际输出的推力（含一阶滞后与速率限幅）
     [[nodiscard]] double actuatorThrust() const { return _act_thrust; }
 
+    /**
+     * @brief 设置推力效率（运行时故障注入）
+     *
+     * 用于在仿真中途模拟桨叶损伤、电机退化等造成的推力损失。
+     * 与电机失效（MotorMixer 的 failed 数组）不同 —— 那是某电机完全失效、
+     * 由混控重新分配；这里是**推力整体打折**，混控无从察觉，只能由 FDI
+     * 从飞行数据中发现。
+     *
+     * @param eff 效率系数（0~1），1 表示正常
+     */
+    void setThrustEfficiency(double eff) { _config.thrust_efficiency = eff; }
+
     /// 当前执行机构实际输出的力矩
     [[nodiscard]] const Tensor &actuatorTorque() const { return _act_torque; }
 

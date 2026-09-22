@@ -95,6 +95,11 @@ target_compile_options(AttitudeGainTest PRIVATE -Wall -Wextra)
 target_link_libraries(AttitudeGainTest PRIVATE oi3_simulator)
 
 # 状态估计：从 IMU/位置测量估计控制器所需状态，并与理想状态反馈做同条件闭环对比
+# 基于残差的故障检测与辨识（FDI）
+add_executable(FaultDetectionTest core/estimation/FaultDetectionTest.cpp)
+target_compile_options(FaultDetectionTest PRIVATE -Wall -Wextra)
+target_link_libraries(FaultDetectionTest PRIVATE oi3_simulator)
+
 # 激励充分性监测与主动激励注入
 add_executable(ExcitationTest core/estimation/ExcitationTest.cpp)
 target_compile_options(ExcitationTest PRIVATE -Wall -Wextra)

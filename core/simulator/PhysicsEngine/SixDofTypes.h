@@ -141,6 +141,18 @@ struct SixDofConfig {
     double inflow_linear = 0.0;
     double inflow_quad = 0.0;
 
+    /**
+     * @brief 推力效率系数（0~1），1 表示正常
+     *
+     * 模拟**桨叶损伤、电机退化、外物附着**等造成的推力损失：实际推力为
+     * 指令值乘以该系数。与电机失效（MotorMixer 的 failed 数组）不同 ——
+     * 那是某个电机完全失效、由混控重新分配；这里是**推力整体打折**，
+     * 混控无从察觉，只能由 FDI 从飞行数据中发现。
+     *
+     * 默认 1.0，既有结果逐位不变。
+     */
+    double thrust_efficiency = 1.0;
+
     /// 各轴力矩限幅（N·m），<= 0 表示不限幅
     double torque_limit = 1.0;
 

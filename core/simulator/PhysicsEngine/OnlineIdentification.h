@@ -124,6 +124,7 @@ class RecursiveLeastSquares {
             pred += phi[i] * _theta[i];
         }
         const double err = y - pred;
+        _last_residual = err;
         for (std::size_t i = 0; i < N; ++i) {
             _theta[i] += K[i] * err;
         }
@@ -146,7 +147,16 @@ class RecursiveLeastSquares {
 
     [[nodiscard]] long long count() const { return _count; }
 
+    /**
+     * @brief 最近一步的预测残差 `y − φᵀθ`
+     *
+     * 这是故障检测的原始信号：参数正常时它只是噪声，参数突变时它立刻变大。
+     * 因此 FDI 不需要另起一套机制 —— 检测所需的信息本来就在估计器手上。
+     */
+    [[nodiscard]] double lastResidual() const { return _last_residual; }
+
   private:
+    double _last_residual = 0.0;
     std::array<double, N> _theta{};
     std::array<double, N * N> _P{};
     double _lambda = 1.0;
@@ -193,6 +203,7 @@ class InflowEstimator {
     [[nodiscard]] double mu() const { return _rls.theta()[0]; }
     [[nodiscard]] double variance() const { return _rls.variance(0); }
     [[nodiscard]] long long count() const { return _rls.count(); }
+    [[nodiscard]] double lastResidual() const { return _rls.lastResidual(); }
 
   private:
     RecursiveLeastSquares<1> _rls;
@@ -242,6 +253,7 @@ class MassDragEstimator {
     }
 
     [[nodiscard]] long long count() const { return _rls.count(); }
+    [[nodiscard]] double lastResidual() const { return _rls.lastResidual(); }
 
   private:
     RecursiveLeastSquares<2> _rls;

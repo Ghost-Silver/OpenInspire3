@@ -144,6 +144,11 @@ Tensor sixDofAcceleration(const Tensor &vel, const Tensor &quat, double thrust_b
         thrust_eff = thrust_body * (1.0 - corr);
     }
 
+    // 推力效率（故障注入：桨叶损伤、电机退化）。默认 1.0，不改变既有结果。
+    if (cfg.thrust_efficiency != 1.0) {
+        thrust_eff *= cfg.thrust_efficiency;
+    }
+
     const Tensor f_thrust_body = makeVec3(0.0f, 0.0f, static_cast<float>(-thrust_eff));
     const Tensor f_thrust_ned = rotateBodyToNed(quat, f_thrust_body);
 

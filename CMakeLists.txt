@@ -135,6 +135,11 @@ add_executable(FrequencyResponseTest core/control/FrequencyResponseTest.cpp)
 target_compile_options(FrequencyResponseTest PRIVATE -Wall -Wextra)
 target_link_libraries(FrequencyResponseTest PRIVATE oi3_simulator)
 
+# 残差重新量化：当前基线上还剩多少可学
+add_executable(ResidualDiagnosticTest core/simulator/PhysicsEngine/ResidualDiagnosticTest.cpp)
+target_compile_options(ResidualDiagnosticTest PRIVATE -Wall -Wextra)
+target_link_libraries(ResidualDiagnosticTest PRIVATE oi3_simulator)
+
 # 残差可学性检查与 Oracle 基线
 add_executable(ResidualLearnabilityTest core/simulator/PhysicsEngine/ResidualLearnabilityTest.cpp)
 target_compile_options(ResidualLearnabilityTest PRIVATE -Wall -Wextra)

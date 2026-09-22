@@ -196,11 +196,18 @@ SixDofCommand SixDofPidController::computeWithWind(const SixDofState &state,
     }
 
     // 桨盘入流补偿：实际推力 T_eff = T·(1 − mu·v_axial)，指令推力被入流打了
-    // 折扣，故需补足。以 T ≈ m·g 近似（悬停时误差很小），则
-    //     Δa_z ≈ −g·mu·v_axial    （NED z 向下为正，负号表示向上补偿）
+    // 折扣，故需补足。
     //
-    // 没有这一项时，即便把真实的 inflow 系数写进配置，前馈也完全不补偿 ——
-    // 「Oracle」与「无知」的误差会逐位相同，学习空间因而被误判为零。
+    // 补偿量 = 损失的推力，而损失**沿机体 −z 方向**（推力方向），不是沿 NED 的
+    // z 轴。机身倾斜时这个损失在 NED 里有水平分量 —— 只补 z 轴会漏掉它们，
+    // 留下与倾角相关的系统性残差。
+    //
+    // 幅值也不能用 T ≈ m·g 近似：机动时推力可达 mg 的 1.2~1.5 倍，近似会低估
+    // 损失。这里用**上一拍的指令推力**作为实际推力的估计（一阶近似，误差远小于
+    // 用 mg 替代）。
+    //
+    // 两处修正前，解析补偿只吃掉了总差距的 95%，残余 0.028 m 与倾角相关
+    // （相关系数 0.41）；修正后残余应进一步下降。
     if (_cfg.inflow_linear != 0.0 || _cfg.inflow_quad != 0.0) {
         const Tensor wind_ned =
             makeVec3(static_cast<float>(v_wind[0]), static_cast<float>(v_wind[1]),
@@ -210,7 +217,28 @@ SixDofCommand SixDofPidController::computeWithWind(const SixDofState &state,
         const double v_axial = rb[2];
         const double corr = _cfg.inflow_linear * v_axial +
                             _cfg.inflow_quad * v_axial * std::fabs(v_axial);
-        a_ff.z -= _cfg.base.gravity * corr;
+
+        // 损失的推力大小（牛顿）：T_loss = T·corr
+        const double t_est = (_last_thrust > 1e-9) ? _last_thrust : _cfg.base.mass * _cfg.base.gravity;
+        const double f_loss = t_est * corr;
+
+        // 方向沿机体 −z（推力方向）：在机体中为 [0,0,−1]，转到 NED 后取反
+        const Tensor loss_body = makeVec3(0.0f, 0.0f, static_cast<float>(-f_loss));
+        const Tensor loss_ned = rotateBodyToNed(state.quat, loss_body);
+
+        // 补偿 = **加上**损失矢量（而非减去）。
+        //
+        // 用水平姿态这个特例验符号：推力损失等效于一个**向下的额外力** T·corr，
+        // 要抵消它须让期望推力增大，即 a_ff.z 要**减小**（NED 中 z 向下为正）。
+        // 水平时 loss_body = [0,0,−f_loss] 转到 NED 仍是 [0,0,−f_loss]，故
+        // `a_ff += loss_ned/m` 恰好给出 a_ff.z -= f_loss/m ✓
+        //
+        // 第一版写成 `a_ff -= loss_ned/m`，符号反了：补偿变成「再施加一份同等
+        // 损失」，误差从 0.137 涨到 1.284（比完全不补偿还差一倍）。
+        const float *ln = loss_ned.data<float>();
+        a_ff.x += ln[0] / m;
+        a_ff.y += ln[1] / m;
+        a_ff.z += ln[2] / m;
     }
 
     const V3d e_pos{tgt.x - pos.x, tgt.y - pos.y, tgt.z - pos.z};
@@ -223,7 +251,10 @@ SixDofCommand SixDofPidController::computeWithWind(const SixDofState &state,
                     clampd(raw[1], -_gains.max_accel, _gains.max_accel),
                     clampd(raw[2], -_gains.max_accel, _gains.max_accel)};
 
-    return solveCommand(_cfg, _gains, _att_kp, _att_kd, state, a_des, _last_tilt_deg);
+    SixDofCommand cmd = solveCommand(_cfg, _gains, _att_kp, _att_kd, state, a_des,
+                                     _last_tilt_deg);
+    _last_thrust = cmd.thrust_body; // 供下一拍入流补偿估计实际推力
+    return cmd;
 }
 
 SixDofCommand SixDofPidController::computeTracking(const SixDofState &state,

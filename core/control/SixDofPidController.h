@@ -224,6 +224,9 @@ class SixDofPidController : public SixDofController {
 
     [[nodiscard]] const SixDofPidGains &gains() const { return _gains; }
 
+    /// 上一拍输出的推力指令（供入流补偿估计实际推力用；0 表示尚未有历史）
+    double _last_thrust = 0.0;
+
     /// 第 i 轴（0=roll,1=pitch,2=yaw）实际使用的姿态增益
     [[nodiscard]] double attKp(int axis) const { return _att_kp[axis]; }
     [[nodiscard]] double attKd(int axis) const { return _att_kd[axis]; }

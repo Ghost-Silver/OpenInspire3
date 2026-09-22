@@ -135,6 +135,11 @@ add_executable(FrequencyResponseTest core/control/FrequencyResponseTest.cpp)
 target_compile_options(FrequencyResponseTest PRIVATE -Wall -Wextra)
 target_link_libraries(FrequencyResponseTest PRIVATE oi3_simulator)
 
+# 自适应控制：在线辨识驱动前馈补偿
+add_executable(AdaptiveControlTest core/control/AdaptiveControlTest.cpp)
+target_compile_options(AdaptiveControlTest PRIVATE -Wall -Wextra)
+target_link_libraries(AdaptiveControlTest PRIVATE oi3_simulator)
+
 # 在线参数估计（递推最小二乘）
 add_executable(OnlineIdTest core/simulator/PhysicsEngine/OnlineIdTest.cpp)
 target_compile_options(OnlineIdTest PRIVATE -Wall -Wextra)

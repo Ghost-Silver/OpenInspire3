@@ -84,6 +84,23 @@ struct SixDofSetpoint {
     double yaw_rate = 0.0;
 };
 
+/**
+ * @brief 入流系数的在线估计器接口
+ *
+ * 控制器只依赖这个抽象接口，而不直接依赖具体的 RLS 实现 —— 保持控制模块
+ * 与仿真/估计模块的单向依赖（控制不该反过来 include 仿真）。
+ *
+ * 实现方（如 InflowEstimator）在每步喂入观测，控制器则读取当前估计值。
+ */
+class InflowEstimateSource {
+  public:
+    virtual ~InflowEstimateSource() = default;
+    /// 当前入流系数估计值
+    [[nodiscard]] virtual double inflowMu() const = 0;
+    /// 是否已积累足够样本（未收敛时控制器应回退到配置值）
+    [[nodiscard]] virtual bool inflowEstimateReady() const = 0;
+};
+
 /// 六自由度控制器接口
 class SixDofController {
   public:
@@ -146,6 +163,24 @@ struct SixDofPidGains {
      * 关闭时 `ω_des` 取零，行为与改造前逐位相同。
      */
     bool use_flat_omega_feedforward = false;
+
+    /**
+     * @brief 是否使用**在线辨识**的入流系数（默认关闭）
+     *
+     * 开启后，入流补偿用在线估计的 mu 而非配置里的固定值。这对应真实需求：
+     * 载荷、桨叶磨损、空气密度都会让出厂标定值在飞行中失准。
+     *
+     * @par 为什么必须显式处理「代数环」
+     *
+     * 估计器以控制器输出（推力指令）为输入，而控制器输出又依赖估计值 ——
+     * 这是一个**闭环**。若估计值抖动，补偿随之抖动，推力变化又反过来影响
+     * 估计输入，理论上可能自激。
+     *
+     * 缓解措施：估计器的遗忘因子（记忆长度）远大于控制回路时间常数，
+     * 使参数估计成为**慢回路**、控制成为快回路，二者时间尺度分离。
+     * 本项在测试中用「估计值抖动幅度」与「闭环误差」两个量来验证是否稳定。
+     */
+    bool use_online_inflow_estimate = false;
 
     // 手动模式（derive_attitude_from_inertia = false 时使用）
     double att_kp = 0.9;  ///< 姿态角误差增益（N·m/rad）
@@ -224,8 +259,28 @@ class SixDofPidController : public SixDofController {
 
     [[nodiscard]] const SixDofPidGains &gains() const { return _gains; }
 
+    /**
+     * @brief 挂载入流系数的在线估计器（不获取所有权，传 nullptr 表示不使用）
+     *
+     * 仅在 `_gains.use_online_inflow_estimate` 为真时生效，且估计器报告
+     * `inflowEstimateReady()` 后才会用估计值覆盖配置值 —— 样本不足时回退到
+     * 配置值，避免用未收敛的估计去做补偿。
+     */
+    void setInflowEstimateSource(InflowEstimateSource *src) { _inflow_src = src; }
+
+    /// 当前实际使用的入流系数（配置值或被估计值覆盖后的值）
+    [[nodiscard]] double activeInflowMu() const { return _active_mu; }
+
     /// 上一拍输出的推力指令（供入流补偿估计实际推力用；0 表示尚未有历史）
     double _last_thrust = 0.0;
+
+    /// 上一拍的期望加速度（供在线辨识构造残差观测用）
+    double _last_a_des[3] = {0.0, 0.0, 0.0};
+
+    /// 在线估计器（非拥有）
+    InflowEstimateSource *_inflow_src = nullptr;
+    /// 本拍实际使用的入流系数（供外部读取与诊断）
+    double _active_mu = 0.0;
 
     /// 第 i 轴（0=roll,1=pitch,2=yaw）实际使用的姿态增益
     [[nodiscard]] double attKp(int axis) const { return _att_kp[axis]; }

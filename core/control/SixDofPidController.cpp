@@ -208,15 +208,26 @@ SixDofCommand SixDofPidController::computeWithWind(const SixDofState &state,
     //
     // 两处修正前，解析补偿只吃掉了总差距的 95%，残余 0.028 m 与倾角相关
     // （相关系数 0.41）；修正后残余应进一步下降。
-    if (_cfg.inflow_linear != 0.0 || _cfg.inflow_quad != 0.0) {
+    // 入流系数来源：优先用在线估计值（若已挂载估计器且其报告样本充足），
+    // 否则回退到配置里的固定值。回退是必要的 —— 估计未收敛时用它会引入
+    // 比「不知道」更差的补偿。
+    double mu_lin = _cfg.inflow_linear;
+    double mu_quad = _cfg.inflow_quad;
+    if (_gains.use_online_inflow_estimate && _inflow_src != nullptr &&
+        _inflow_src->inflowEstimateReady()) {
+        mu_lin = _inflow_src->inflowMu();
+        mu_quad = 0.0; // 在线估计当前只覆盖线性项
+    }
+    _active_mu = mu_lin;
+
+    if (mu_lin != 0.0 || mu_quad != 0.0) {
         const Tensor wind_ned =
             makeVec3(static_cast<float>(v_wind[0]), static_cast<float>(v_wind[1]),
                      static_cast<float>(v_wind[2]));
         const Tensor rel_body = rotateNedToBody(state.quat, state.vel - wind_ned);
         const float *rb = rel_body.data<float>();
         const double v_axial = rb[2];
-        const double corr = _cfg.inflow_linear * v_axial +
-                            _cfg.inflow_quad * v_axial * std::fabs(v_axial);
+        const double corr = mu_lin * v_axial + mu_quad * v_axial * std::fabs(v_axial);
 
         // 损失的推力大小（牛顿）：T_loss = T·corr
         const double t_est = (_last_thrust > 1e-9) ? _last_thrust : _cfg.base.mass * _cfg.base.gravity;

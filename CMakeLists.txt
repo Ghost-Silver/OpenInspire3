@@ -125,6 +125,11 @@ add_executable(StickManeuverTest core/control/StickManeuverTest.cpp)
 target_compile_options(StickManeuverTest PRIVATE -Wall -Wextra)
 target_link_libraries(StickManeuverTest PRIVATE oi3_simulator)
 
+# 控制回路实时性：耗时、抖动与分配
+add_executable(ControlLatencyTest core/control/ControlLatencyTest.cpp)
+target_compile_options(ControlLatencyTest PRIVATE -Wall -Wextra)
+target_link_libraries(ControlLatencyTest PRIVATE oi3_simulator)
+
 # 积分兜底：相位裕度代价 vs 稳态误差收益
 add_executable(IntegralActionTest core/control/IntegralActionTest.cpp)
 target_compile_options(IntegralActionTest PRIVATE -Wall -Wextra)

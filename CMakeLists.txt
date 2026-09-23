@@ -125,6 +125,11 @@ add_executable(StickManeuverTest core/control/StickManeuverTest.cpp)
 target_compile_options(StickManeuverTest PRIVATE -Wall -Wextra)
 target_link_libraries(StickManeuverTest PRIVATE oi3_simulator)
 
+# 偏航控制：从「偏航自由」到「偏航受控」
+add_executable(YawControlTest core/control/YawControlTest.cpp)
+target_compile_options(YawControlTest PRIVATE -Wall -Wextra)
+target_link_libraries(YawControlTest PRIVATE oi3_simulator)
+
 # 平坦前馈接入：角速度前馈对机动性的影响
 add_executable(FlatFeedforwardTest core/control/FlatFeedforwardTest.cpp)
 target_compile_options(FlatFeedforwardTest PRIVATE -Wall -Wextra)

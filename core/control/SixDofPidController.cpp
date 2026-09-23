@@ -38,6 +38,157 @@ double dot(const V3d &a, const V3d &b) { return a.x * b.x + a.y * b.y + a.z * b.
 
 double norm(const V3d &a) { return std::sqrt(dot(a, a)); }
 
+/// 四元数（w, x, y, z），Hamilton 约定，与 SixDofDynamics 一致
+struct Quatd {
+    double w, x, y, z;
+};
+
+Quatd readQuatD(const Tensor &t) {
+    const float *p = t.data<float>();
+    return {p[0], p[1], p[2], p[3]};
+}
+
+/// 旋转矩阵（body → NED），与 SixDofDynamics::rotationMatrix 同一约定
+void rotationMatrixOf(const Quatd &q, double r[3][3]) {
+    const double w = q.w, x = q.x, y = q.y, z = q.z;
+    r[0][0] = 1.0 - 2.0 * (y * y + z * z);
+    r[0][1] = 2.0 * (x * y - w * z);
+    r[0][2] = 2.0 * (x * z + w * y);
+    r[1][0] = 2.0 * (x * y + w * z);
+    r[1][1] = 1.0 - 2.0 * (x * x + z * z);
+    r[1][2] = 2.0 * (y * z - w * x);
+    r[2][0] = 2.0 * (x * z - w * y);
+    r[2][1] = 2.0 * (y * z + w * x);
+    r[2][2] = 1.0 - 2.0 * (x * x + y * y);
+}
+
+/**
+ * @brief 由「期望推力方向 + 期望偏航角」构造完整期望姿态
+ *
+ * @par 为什么必须补上偏航
+ *
+ * 原先的姿态误差只用 `cross(z_cur, z_des)` —— 即**只对齐机体 z 轴（推力方向）**。
+ * 这在数学上留下一个自由度：绕 z_des 的转动不受任何约束，偏航角完全自由。
+ *
+ * 对纯定点悬停这没影响（偏航随便转，位置照样准），但一旦挂载相机、云台，
+ * 或做任何需要指向的任务，**偏航就是任务要求，不是自由变量**。真机上偏航
+ * 还影响气动与能耗。所以这是结构性缺失，不是调参能补的。
+ *
+ * @par 构造方式
+ *
+ * 已知期望机体 z 轴 `z_des`（由期望加速度定，保证推力方向正确）与期望偏航
+ * `psi_des`（任务给定），按以下方式正交化：
+ *
+ * @verbatim
+ *   x_c = [cos ψ, sin ψ, 0]        偏航方向决定的中间轴
+ *   y_b = z_des × x_c / ‖·‖
+ *   x_b = y_b × z_des
+ *   R_des = [x_b  y_b  z_des]      列为机体系三轴在 NED 中的表示
+ * @endverbatim
+ *
+ * 这与 DifferentialFlatness.h 的构造一致 —— 平坦映射同样是由加速度与偏航
+ * 定出完整姿态，两处必须用同一套约定，否则前馈与反馈会互相打架。
+ *
+ * @note 当 `z_des` 与偏航轴共线（机身竖直指向偏航方向）时退化，此时返回 false，
+ *       调用方应回退到只对齐推力方向的处理。
+ */
+bool buildDesiredAttitude(const V3d &z_des, double yaw_des, double r_des[3][3]) {
+    const V3d xc{std::cos(yaw_des), std::sin(yaw_des), 0.0};
+    V3d yb = cross(z_des, xc);
+    const double ybn = norm(yb);
+    if (ybn < 1e-6) {
+        return false; // 退化：推力方向与偏航轴共线
+    }
+    yb = {yb.x / ybn, yb.y / ybn, yb.z / ybn};
+    const V3d xb = cross(yb, z_des);
+
+    // 列为机体系三轴（R 的列 = 机体轴在 NED 中的表示）
+    r_des[0][0] = xb.x; r_des[0][1] = yb.x; r_des[0][2] = z_des.x;
+    r_des[1][0] = xb.y; r_des[1][1] = yb.y; r_des[1][2] = z_des.y;
+    r_des[2][0] = xb.z; r_des[2][1] = yb.z; r_des[2][2] = z_des.z;
+    return true;
+}
+
+/**
+ * @brief 由两个旋转矩阵求误差旋转向量（NED 系）
+ *
+ * 误差定义为 `R_e = R_des · R_curᵀ`：把当前姿态**转到**期望姿态所需的旋转。
+ * 取其轴角即得误差向量。
+ *
+ * @par 为什么用矩阵而不是四元数
+ *
+ * 四元数误差需要处理符号歧义（q 与 −q 表示同一姿态），在热路径上多一次判断；
+ * 而这里只需要旋转向量、不需要插值，矩阵形式更直接。3×3 矩阵乘法在栈上完成，
+ * 无堆分配。
+ */
+V3d rotationErrorVector(const double r_des[3][3], const double r_cur[3][3]) {
+    // R_e = R_des · R_curᵀ（R_cur 正交，转置即逆）
+    double re[3][3];
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            re[i][j] = r_des[i][0] * r_cur[j][0] + r_des[i][1] * r_cur[j][1] +
+                       r_des[i][2] * r_cur[j][2];
+        }
+    }
+
+    // 轴角：sinθ·axis = ½·(R_e − R_eᵀ) 的轴向量
+    const double s = 0.5 * std::sqrt(std::max(0.0, (re[2][1] - re[1][2]) * (re[2][1] - re[1][2]) +
+                                                  (re[0][2] - re[2][0]) * (re[0][2] - re[2][0]) +
+                                                  (re[1][0] - re[0][1]) * (re[1][0] - re[0][1])));
+    const double c = clampd(0.5 * (re[0][0] + re[1][1] + re[2][2] - 1.0), -1.0, 1.0);
+    const double theta = std::atan2(s, c);
+
+    if (s > 1e-9) {
+        // 一般情形：反对称部分直接给出轴
+        const double k = theta / s;
+        return {k * 0.5 * (re[2][1] - re[1][2]), k * 0.5 * (re[0][2] - re[2][0]),
+                k * 0.5 * (re[1][0] - re[0][1])};
+    }
+
+    if (c > 0.0) {
+        return {0.0, 0.0, 0.0}; // θ ≈ 0：无旋转
+    }
+
+    // ---- θ ≈ π 的奇异情形 ----
+    //
+    // 此时 sinθ ≈ 0，反对称部分**恒为零**，轴无法由它确定。若不特殊处理，
+    // 上面的 `s > 1e-9` 分支不成立、而 c < 0 又意味着确实需要转 180°，
+    // 结果返回零旋转 —— **完全不产生纠正力矩，静默失效**。
+    //
+    // 实测：180° 偏航指令下 RMS 误差 180°、终值 0°，飞行器原地不动。
+    //
+    // 正确做法用**对称部分**：θ = π 时 `R_e = 2·a·aᵀ − I`，故
+    //     R_e[i][i] + 1 = 2·a_i²        （对角元给出轴的各分量模长）
+    //     R_e[i][j]     = 2·a_i·a_j     （非对角元给出相对符号）
+    // 取模长最大的分量作主元以保证数值稳定，其余分量由非对角元定出。
+    const double d0 = std::max(0.0, (re[0][0] + 1.0) * 0.5);
+    const double d1 = std::max(0.0, (re[1][1] + 1.0) * 0.5);
+    const double d2 = std::max(0.0, (re[2][2] + 1.0) * 0.5);
+
+    double a[3] = {0.0, 0.0, 0.0};
+    if (d0 >= d1 && d0 >= d2 && d0 > 1e-12) {
+        a[0] = std::sqrt(d0);
+        a[1] = re[0][1] / (2.0 * a[0]);
+        a[2] = re[0][2] / (2.0 * a[0]);
+    } else if (d1 >= d2 && d1 > 1e-12) {
+        a[1] = std::sqrt(d1);
+        a[0] = re[0][1] / (2.0 * a[1]);
+        a[2] = re[1][2] / (2.0 * a[1]);
+    } else if (d2 > 1e-12) {
+        a[2] = std::sqrt(d2);
+        a[0] = re[0][2] / (2.0 * a[2]);
+        a[1] = re[1][2] / (2.0 * a[2]);
+    } else {
+        return {0.0, 0.0, 0.0};
+    }
+    const double an = std::sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+    if (an < 1e-12) {
+        return {0.0, 0.0, 0.0};
+    }
+    const double k = theta / an;
+    return {k * a[0], k * a[1], k * a[2]};
+}
+
 } // namespace
 
 SixDofPidController::SixDofPidController(SixDofConfig cfg, SixDofPidGains gains)
@@ -75,7 +226,8 @@ namespace {
  */
 SixDofCommand solveCommand(const SixDofConfig &cfg, const SixDofPidGains &gains,
                            const double att_kp[3], const double att_kd[3],
-                           const SixDofState &state, const V3d &a_in, double &tilt_out) {
+                           const SixDofState &state, const V3d &a_in, double &tilt_out,
+                           double yaw_des = 0.0, bool use_yaw = false) {
     const double m = cfg.base.mass;
     const double g = cfg.base.gravity;
 
@@ -92,34 +244,84 @@ SixDofCommand solveCommand(const SixDofConfig &cfg, const SixDofPidGains &gains,
         z_des = {-f_des.x / f_norm, -f_des.y / f_norm, -f_des.z / f_norm};
     }
 
-    // 当前机体 z 轴在 NED 系中的方向
-    const Tensor z_body_frame = makeVec3(0.0f, 0.0f, 1.0f);
-    const V3d z_cur = readV3(rotateBodyToNed(state.quat, z_body_frame));
-
-    // ---- 姿态误差：把 z_cur 旋到 z_des 的轴角 ----
-    const V3d axis_raw = cross(z_cur, z_des);
-    const double sin_theta = norm(axis_raw);
-    const double cos_theta = clampd(dot(z_cur, z_des), -1.0, 1.0);
-    double theta = std::atan2(sin_theta, cos_theta);
-
-    // 倾角限幅：过大的倾角会让竖直可用推力不足以维持高度
+    // 倾角限幅：过大的倾角会让竖直可用推力不足以维持高度。
+    //
+    // 限幅作用在**期望推力方向**上（而非误差），物理含义清楚：推力方向不能
+    // 偏得太多。这样限幅与偏航互不干扰 —— 偏航是绕 z_des 的转动，不该被
+    // 倾斜约束波及。
     const double max_tilt = gains.max_tilt_deg / 180.0 * kPi;
-    theta = clampd(theta, -max_tilt, max_tilt);
-    tilt_out = theta / kPi * 180.0;
-
-    V3d rotvec_ned{0.0, 0.0, 0.0};
-    if (sin_theta > 1e-9) {
-        rotvec_ned = {axis_raw.x / sin_theta * theta, axis_raw.y / sin_theta * theta,
-                      axis_raw.z / sin_theta * theta};
+    {
+        const double cz = clampd(z_des.z, -1.0, 1.0);
+        const double tilt_now = std::acos(cz);
+        if (tilt_now > max_tilt) {
+            // 把 z_des 绕「与竖直轴垂直的方向」压回 max_tilt
+            const V3d axis{0.0, 0.0, 0.0};
+            (void)axis;
+            const double s_t = std::sin(tilt_now);
+            if (s_t > 1e-9) {
+                // z_des 的水平分量方向
+                const double hx = z_des.x / s_t;
+                const double hy = z_des.y / s_t;
+                const double st = std::sin(max_tilt);
+                const double ct = std::cos(max_tilt);
+                z_des = {hx * st, hy * st, ct};
+            }
+        }
+        tilt_out = std::acos(clampd(z_des.z, -1.0, 1.0)) / kPi * 180.0;
     }
 
-    // 误差旋转向量在 NED 系，力矩须在机体系施加，故旋转回机体系
-    const Tensor rotvec_ned_t =
-        makeVec3(static_cast<float>(rotvec_ned.x), static_cast<float>(rotvec_ned.y),
-                 static_cast<float>(rotvec_ned.z));
-    const Tensor rotvec_body_t = rotateNedToBody(state.quat, rotvec_ned_t);
-    const V3d rotvec_body = readV3(rotvec_body_t);
     const V3d omega = readV3(state.omega);
+    V3d rotvec_body{0.0, 0.0, 0.0};
+
+    if (use_yaw) {
+        // ---- 完整姿态误差（含偏航）----
+        //
+        // 用「期望推力方向 + 期望偏航」构造完整期望姿态，再与当前姿态作差。
+        // 这样偏航角被真正约束住，而不是像原路径那样完全自由。
+        double r_des[3][3];
+        const bool ok = buildDesiredAttitude(z_des, yaw_des, r_des);
+        if (ok) {
+            double r_cur[3][3];
+            rotationMatrixOf(readQuatD(state.quat), r_cur);
+            const V3d rotvec_ned = rotationErrorVector(r_des, r_cur);
+
+            // 误差在 NED，力矩须在机体系施加：绕 NED 的旋转向量转到机体系
+            // 只需左乘 Rᵀ（正交矩阵的逆即转置），栈上完成、无堆分配。
+            rotvec_body = {r_cur[0][0] * rotvec_ned.x + r_cur[1][0] * rotvec_ned.y +
+                               r_cur[2][0] * rotvec_ned.z,
+                           r_cur[0][1] * rotvec_ned.x + r_cur[1][1] * rotvec_ned.y +
+                               r_cur[2][1] * rotvec_ned.z,
+                           r_cur[0][2] * rotvec_ned.x + r_cur[1][2] * rotvec_ned.y +
+                               r_cur[2][2] * rotvec_ned.z};
+        } else {
+            use_yaw = false; // 退化时回退到原路径
+        }
+    }
+
+    if (!use_yaw) {
+        // ---- 原路径：只对齐推力方向（偏航自由）----
+        //
+        // 保留为默认行为：定点悬停不需要约束偏航，且既有全部测试与结果都基于
+        // 这条路径，改动会破坏可比性。需要指向的任务显式开启偏航控制。
+        const Tensor z_body_frame = makeVec3(0.0f, 0.0f, 1.0f);
+        const V3d z_cur = readV3(rotateBodyToNed(state.quat, z_body_frame));
+
+        const V3d axis_raw = cross(z_cur, z_des);
+        const double sin_theta = norm(axis_raw);
+        const double cos_theta = clampd(dot(z_cur, z_des), -1.0, 1.0);
+        const double theta = std::atan2(sin_theta, cos_theta);
+
+        V3d rotvec_ned{0.0, 0.0, 0.0};
+        if (sin_theta > 1e-9) {
+            rotvec_ned = {axis_raw.x / sin_theta * theta, axis_raw.y / sin_theta * theta,
+                          axis_raw.z / sin_theta * theta};
+        }
+
+        const Tensor rotvec_ned_t =
+            makeVec3(static_cast<float>(rotvec_ned.x), static_cast<float>(rotvec_ned.y),
+                     static_cast<float>(rotvec_ned.z));
+        rotvec_body = readV3(rotateNedToBody(state.quat, rotvec_ned_t));
+    }
 
     // ---- 姿态环：PD 力矩 ----
     SixDofCommand cmd;
@@ -262,8 +464,9 @@ SixDofCommand SixDofPidController::computeWithWind(const SixDofState &state,
                     clampd(raw[1], -_gains.max_accel, _gains.max_accel),
                     clampd(raw[2], -_gains.max_accel, _gains.max_accel)};
 
-    SixDofCommand cmd = solveCommand(_cfg, _gains, _att_kp, _att_kd, state, a_des,
-                                     _last_tilt_deg);
+    SixDofCommand cmd =
+        solveCommand(_cfg, _gains, _att_kp, _att_kd, state, a_des, _last_tilt_deg, 0.0,
+                     _gains.use_yaw_control);
     _last_thrust = cmd.thrust_body; // 供下一拍入流补偿估计实际推力
     return cmd;
 }
@@ -289,8 +492,10 @@ SixDofCommand SixDofPidController::computeTracking(const SixDofState &state,
                     clampd(raw[1], -_gains.max_accel, _gains.max_accel),
                     clampd(raw[2], -_gains.max_accel, _gains.max_accel)};
 
-    SixDofCommand cmd =
-        solveCommand(_cfg, _gains, _att_kp, _att_kd, state, a_des, _last_tilt_deg);
+    // 参考偏航角接入控制律（此前只传给平坦前馈，未参与反馈 —— 偏航因此
+    // 完全自由，是结构性缺失）。
+    SixDofCommand cmd = solveCommand(_cfg, _gains, _att_kp, _att_kd, state, a_des,
+                                     _last_tilt_deg, ref.yaw, _gains.use_yaw_control);
 
     // ---- 平坦前馈：角速度参考 ----
     //

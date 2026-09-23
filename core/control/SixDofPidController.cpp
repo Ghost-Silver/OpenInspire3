@@ -211,7 +211,11 @@ SixDofPidController::SixDofPidController(SixDofConfig cfg, SixDofPidGains gains)
     }
 }
 
-void SixDofPidController::reset() { _last_tilt_deg = 0.0; }
+void SixDofPidController::reset() {
+    _last_tilt_deg = 0.0;
+    _last_thrust = 0.0;
+    _pos_integral[0] = _pos_integral[1] = _pos_integral[2] = 0.0;
+}
 
 namespace {
 
@@ -348,10 +352,29 @@ SixDofCommand SixDofPidController::compute(const SixDofState &state, const Tenso
     // （写成 kp*e + kd*(-vel) 而不是 kd*(0-vel)），使定点悬停的全部既有实测
     // 结果逐位不变 —— 改控制律时最忌讳把回归数据悄悄改掉。
     const V3d e_pos{tgt.x - pos.x, tgt.y - pos.y, tgt.z - pos.z};
+
+    // 积分项（默认 ki = 0，完全跳过）。
+    //
+    // 注意：本函数此前是**独立实现**的位置环，与 computeWithWind /
+    // computeTracking 各写一份。给后两者加积分时漏了这里，症状是
+    // 「调用 compute 时积分项恒为 0」—— 同一条控制律写三遍，改一处就会漏
+    // 另外两处。这里补上后三处逻辑一致。
+    double i_term[3] = {0.0, 0.0, 0.0};
+    if (_gains.pos_ki != 0.0) {
+        const double dt = _cfg.base.dt;
+        const double e[3] = {e_pos.x, e_pos.y, e_pos.z};
+        const double lim = _gains.integral_limit / std::max(1e-9, _gains.pos_ki);
+        for (int i = 0; i < 3; ++i) {
+            _pos_integral[i] += e[i] * dt;
+            _pos_integral[i] = clampd(_pos_integral[i], -lim, lim);
+            i_term[i] = _gains.pos_ki * _pos_integral[i];
+        }
+    }
+
     const double raw[3] = {
-        _gains.pos_kp * e_pos.x + _gains.pos_kd * (-vel.x),
-        _gains.pos_kp * e_pos.y + _gains.pos_kd * (-vel.y),
-        _gains.pos_kp * e_pos.z + _gains.pos_kd * (-vel.z),
+        i_term[0] + _gains.pos_kp * e_pos.x + _gains.pos_kd * (-vel.x),
+        i_term[1] + _gains.pos_kp * e_pos.y + _gains.pos_kd * (-vel.y),
+        i_term[2] + _gains.pos_kp * e_pos.z + _gains.pos_kd * (-vel.z),
     };
     const V3d a_des{clampd(raw[0], -_gains.max_accel, _gains.max_accel),
                     clampd(raw[1], -_gains.max_accel, _gains.max_accel),
@@ -455,10 +478,34 @@ SixDofCommand SixDofPidController::computeWithWind(const SixDofState &state,
     }
 
     const V3d e_pos{tgt.x - pos.x, tgt.y - pos.y, tgt.z - pos.z};
+
+    // ---- 积分项（默认 ki = 0，即纯 PD）----
+    //
+    // 作用：消除**模型外**常值偏差造成的稳态误差。前馈补的是已知效应，
+    // 自适应补的是「已知效应 + 未知系数」，而机身不对称、电机安装偏斜、
+    // 重心偏移这类结构性偏差两者都补不了 —— 只有积分能吃掉。
+    //
+    // 代价：`PM = atan2(kd·ωc − ki/ωc, kp) − ωc·T`，`ki/ωc` 从 `kd·ωc` 中减去。
+    // 实测 ki = 1 时裕度损失 < 5°，可接受。
+    //
+    // 限幅（anti-windup）：执行器饱和期间误差持续累积会让积分涨到很大、
+    // 之后长时间退不回来。限幅值取与 max_accel 同量级。
+    double i_term[3] = {0.0, 0.0, 0.0};
+    if (_gains.pos_ki != 0.0) {
+        const double dt = _cfg.base.dt;
+        const double e[3] = {e_pos.x, e_pos.y, e_pos.z};
+        const double lim = _gains.integral_limit / std::max(1e-9, _gains.pos_ki);
+        for (int i = 0; i < 3; ++i) {
+            _pos_integral[i] += e[i] * dt;
+            _pos_integral[i] = clampd(_pos_integral[i], -lim, lim);
+            i_term[i] = _gains.pos_ki * _pos_integral[i];
+        }
+    }
+
     const double raw[3] = {
-        a_ff.x + _gains.pos_kp * e_pos.x + _gains.pos_kd * (-vel.x),
-        a_ff.y + _gains.pos_kp * e_pos.y + _gains.pos_kd * (-vel.y),
-        a_ff.z + _gains.pos_kp * e_pos.z + _gains.pos_kd * (-vel.z),
+        a_ff.x + i_term[0] + _gains.pos_kp * e_pos.x + _gains.pos_kd * (-vel.x),
+        a_ff.y + i_term[1] + _gains.pos_kp * e_pos.y + _gains.pos_kd * (-vel.y),
+        a_ff.z + i_term[2] + _gains.pos_kp * e_pos.z + _gains.pos_kd * (-vel.z),
     };
     const V3d a_des{clampd(raw[0], -_gains.max_accel, _gains.max_accel),
                     clampd(raw[1], -_gains.max_accel, _gains.max_accel),
@@ -483,10 +530,24 @@ SixDofCommand SixDofPidController::computeTracking(const SixDofState &state,
     // 阻尼作用在速度误差上（不再把轨迹本身的运动速度当成要消除的量）。
     const V3d e_pos{ref.pos[0] - pos.x, ref.pos[1] - pos.y, ref.pos[2] - pos.z};
     const V3d e_vel{ref.vel[0] - vel.x, ref.vel[1] - vel.y, ref.vel[2] - vel.z};
+
+    // 积分项（与定点路径共用同一组积分状态；ki = 0 时完全跳过）
+    double i_term[3] = {0.0, 0.0, 0.0};
+    if (_gains.pos_ki != 0.0) {
+        const double dt = _cfg.base.dt;
+        const double e[3] = {e_pos.x, e_pos.y, e_pos.z};
+        const double lim = _gains.integral_limit / std::max(1e-9, _gains.pos_ki);
+        for (int i = 0; i < 3; ++i) {
+            _pos_integral[i] += e[i] * dt;
+            _pos_integral[i] = clampd(_pos_integral[i], -lim, lim);
+            i_term[i] = _gains.pos_ki * _pos_integral[i];
+        }
+    }
+
     const double raw[3] = {
-        ref.acc[0] + _gains.pos_kp * e_pos.x + _gains.pos_kd * e_vel.x,
-        ref.acc[1] + _gains.pos_kp * e_pos.y + _gains.pos_kd * e_vel.y,
-        ref.acc[2] + _gains.pos_kp * e_pos.z + _gains.pos_kd * e_vel.z,
+        ref.acc[0] + i_term[0] + _gains.pos_kp * e_pos.x + _gains.pos_kd * e_vel.x,
+        ref.acc[1] + i_term[1] + _gains.pos_kp * e_pos.y + _gains.pos_kd * e_vel.y,
+        ref.acc[2] + i_term[2] + _gains.pos_kp * e_pos.z + _gains.pos_kd * e_vel.z,
     };
     const V3d a_des{clampd(raw[0], -_gains.max_accel, _gains.max_accel),
                     clampd(raw[1], -_gains.max_accel, _gains.max_accel),

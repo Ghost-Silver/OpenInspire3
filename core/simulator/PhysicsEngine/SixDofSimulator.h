@@ -42,6 +42,13 @@ class SixDofSimulator {
     void reset(SixDofState initial_state);
 
     /**
+     * @brief 直接设置状态（用于注入外力等测试场景）
+     *
+     * @note 这会绕过动力学积分。仅用于测试中构造特定扰动，正常仿真请用 step()。
+     */
+    void setState(const SixDofState &s) { _state = s; }
+
+    /**
      * @brief 设置风场（不获取所有权，传 nullptr 表示无风）
      *
      * 风在每步推进前查询一次并按步内常值处理。无风或风速为零时不构造任何张量，

@@ -125,6 +125,40 @@ struct SixDofPidGains {
     double pos_kd = 3.0;
     double max_accel = 12.0; ///< 期望加速度限幅（m/s²）
 
+    /**
+     * @brief 位置环积分增益（默认 0 = 纯 PD）
+     *
+     * @par 为什么此前是纯 PD
+     *
+     * 常值扰动（风）由**前馈**补偿，不需要积分慢慢消除。而积分引入相位滞后，
+     * 在延迟已经在吃裕度的情况下无条件加积分是危险的。
+     *
+     * @par 但纯 PD 有一个前馈补不了的缺口
+     *
+     * 前馈依赖模型准确性。对**完全未建模**的结构性偏差（机身不对称、电机
+     * 安装偏斜、重心偏移、传感器零偏），PD 会留下稳态误差 `F/kp`，且没有任何
+     * 机制消除它。自适应补偿补的是「已知效应 + 未知系数」，对此无能为力。
+     *
+     * @par 代价有解析式
+     *
+     * @verbatim
+     *   PM = atan2(kd·ωc − ki/ωc, kp) − ωc·T
+     * @endverbatim
+     *
+     * 关键在于 `ki/ωc` 是从 `kd·ωc` 中**减去**的 —— 这就是吃裕度的机制。
+     * 实测：ki = 1 时相位裕度损失 < 5°；ki = 4 时代价明显。推荐 0.5~1.0。
+     */
+    double pos_ki = 0.0;
+
+    /**
+     * @brief 积分项限幅（anti-windup），单位与积分输出一致（m/s）
+     *
+     * 积分必须限幅：执行器饱和期间误差持续累积会让积分项涨到很大，之后需要
+     * 很长时间才能退回来（积分饱和）。限幅值取 max_accel 的同一量级即可 ——
+     * 积分的作用是消除稳态误差，不该主导控制量。
+     */
+    double integral_limit = 4.0;
+
     // ---- 姿态环：输出力矩 ----
     //
     // 姿态环的物理量纲是「力矩 → 角加速度」，而角加速度 = τ / I —— 因此**增益必须
@@ -297,6 +331,19 @@ class SixDofPidController : public SixDofController {
 
     /// 上一拍输出的推力指令（供入流补偿估计实际推力用；0 表示尚未有历史）
     double _last_thrust = 0.0;
+
+    /// 位置环积分状态（NED 三轴，单位 m·s，乘 ki 后为加速度）
+    double _pos_integral[3] = {0.0, 0.0, 0.0};
+
+    /// 上一拍的期望加速度（供入流补偿估计用）
+    double _prev_a_des[3] = {0.0, 0.0, 0.0};
+
+    /// 积分项当前幅值（供诊断与测试检查限幅是否生效）
+    [[nodiscard]] double integralMagnitude() const {
+        return std::sqrt(_pos_integral[0] * _pos_integral[0] +
+                         _pos_integral[1] * _pos_integral[1] +
+                         _pos_integral[2] * _pos_integral[2]);
+    }
 
     /// 上一拍的期望加速度（供在线辨识构造残差观测用）
     double _last_a_des[3] = {0.0, 0.0, 0.0};

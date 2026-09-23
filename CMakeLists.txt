@@ -125,6 +125,11 @@ add_executable(StickManeuverTest core/control/StickManeuverTest.cpp)
 target_compile_options(StickManeuverTest PRIVATE -Wall -Wextra)
 target_link_libraries(StickManeuverTest PRIVATE oi3_simulator)
 
+# 积分兜底：相位裕度代价 vs 稳态误差收益
+add_executable(IntegralActionTest core/control/IntegralActionTest.cpp)
+target_compile_options(IntegralActionTest PRIVATE -Wall -Wextra)
+target_link_libraries(IntegralActionTest PRIVATE oi3_simulator)
+
 # 偏航控制：从「偏航自由」到「偏航受控」
 add_executable(YawControlTest core/control/YawControlTest.cpp)
 target_compile_options(YawControlTest PRIVATE -Wall -Wextra)

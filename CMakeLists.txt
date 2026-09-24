@@ -125,6 +125,11 @@ add_executable(StickManeuverTest core/control/StickManeuverTest.cpp)
 target_compile_options(StickManeuverTest PRIVATE -Wall -Wextra)
 target_link_libraries(StickManeuverTest PRIVATE oi3_simulator)
 
+# 大机动：倾角约束链、推力补偿与饱和
+add_executable(LargeManeuverTest core/control/LargeManeuverTest.cpp)
+target_compile_options(LargeManeuverTest PRIVATE -Wall -Wextra)
+target_link_libraries(LargeManeuverTest PRIVATE oi3_simulator)
+
 # 带宽极限：噪声与延迟约束下的可用带宽
 add_executable(BandwidthLimitTest core/control/BandwidthLimitTest.cpp)
 target_compile_options(BandwidthLimitTest PRIVATE -Wall -Wextra)

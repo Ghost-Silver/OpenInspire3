@@ -125,6 +125,11 @@ add_executable(StickManeuverTest core/control/StickManeuverTest.cpp)
 target_compile_options(StickManeuverTest PRIVATE -Wall -Wextra)
 target_link_libraries(StickManeuverTest PRIVATE oi3_simulator)
 
+# 带宽极限：噪声与延迟约束下的可用带宽
+add_executable(BandwidthLimitTest core/control/BandwidthLimitTest.cpp)
+target_compile_options(BandwidthLimitTest PRIVATE -Wall -Wextra)
+target_link_libraries(BandwidthLimitTest PRIVATE oi3_simulator)
+
 # 控制回路实时性：耗时、抖动与分配
 add_executable(ControlLatencyTest core/control/ControlLatencyTest.cpp)
 target_compile_options(ControlLatencyTest PRIVATE -Wall -Wextra)

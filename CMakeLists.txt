@@ -125,6 +125,11 @@ add_executable(StickManeuverTest core/control/StickManeuverTest.cpp)
 target_compile_options(StickManeuverTest PRIVATE -Wall -Wextra)
 target_link_libraries(StickManeuverTest PRIVATE oi3_simulator)
 
+# 观测器 vs 自适应：分工边界
+add_executable(ObserverVsAdaptiveTest core/control/ObserverVsAdaptiveTest.cpp)
+target_compile_options(ObserverVsAdaptiveTest PRIVATE -Wall -Wextra)
+target_link_libraries(ObserverVsAdaptiveTest PRIVATE oi3_simulator)
+
 # 扰动观测器：直流抑制、相位代价与噪声
 add_executable(DisturbanceObserverTest core/control/DisturbanceObserverTest.cpp)
 target_compile_options(DisturbanceObserverTest PRIVATE -Wall -Wextra)

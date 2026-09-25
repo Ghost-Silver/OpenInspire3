@@ -349,6 +349,12 @@ SixDofCommand solveCommand(const SixDofConfig &cfg, const SixDofPidGains &gains,
  */
 SixDofCommand SixDofPidController::publish(SixDofCommand cmd) {
     _last_thrust = cmd.thrust_body; // 供下一拍的入流补偿与扰动观测器使用
+
+    // 清零本拍记录的已解释损失。三条路径共用此出口，故不会遗漏 ——
+    // 下一拍的入流块（若存在）会重新写入，观测器则在其后读取。
+    _last_modeled_loss_ned[0] = 0.0;
+    _last_modeled_loss_ned[1] = 0.0;
+    _last_modeled_loss_ned[2] = 0.0;
     return cmd;
 }
 
@@ -400,12 +406,19 @@ std::array<double, 3> SixDofPidController::finalizeAccel(const double raw[3],
                 // 未建模力（阻力、外力、推力损失）。
                 const double m = _cfg.base.mass;
                 const double g = _cfg.base.gravity;
-                const V3d f_body{0.0, 0.0, -_last_thrust};
                 const Tensor f_body_t =
                     makeVec3(0.0f, 0.0f, static_cast<float>(-_last_thrust));
                 const V3d f_ned = readV3(rotateBodyToNed(state.quat, f_body_t));
-                const double a_applied[3] = {f_ned.x / m, f_ned.y / m, f_ned.z / m + g};
-                (void)f_body;
+
+                // 扣除**已被模型解释**的效应（入流损失等）。
+                //
+                // 实际力 = R·(−T·ẑ) − loss_ned。用水平特例验符号：R=I 时
+                // 实际力 z 分量 = −T − (−T·corr) = −T(1−corr)，与动力学一致。
+                //
+                // 不扣则观测器把已知效应当未知扰动重复补偿 —— 实测差 7000 倍。
+                const double a_applied[3] = {f_ned.x / m - _last_modeled_loss_ned[0] / m,
+                                             f_ned.y / m - _last_modeled_loss_ned[1] / m,
+                                             f_ned.z / m - _last_modeled_loss_ned[2] / m + g};
 
                 for (int i = 0; i < 3; ++i) {
                     const double a_meas = (v_arr[i] - _obs_prev_vel[i]) / dt;
@@ -577,6 +590,12 @@ SixDofCommand SixDofPidController::computeWithWind(const SixDofState &state,
         a_ff.x += ln[0] / m;
         a_ff.y += ln[1] / m;
         a_ff.z += ln[2] / m;
+
+        // 记录**已被模型解释**的损失，供观测器从残差中扣除。
+        // 否则观测器会把同一份损失再补一次（见头文件说明）。
+        _last_modeled_loss_ned[0] = ln[0];
+        _last_modeled_loss_ned[1] = ln[1];
+        _last_modeled_loss_ned[2] = ln[2];
     }
 
     const V3d e_pos{tgt.x - pos.x, tgt.y - pos.y, tgt.z - pos.z};

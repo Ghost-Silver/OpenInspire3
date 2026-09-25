@@ -125,6 +125,11 @@ add_executable(StickManeuverTest core/control/StickManeuverTest.cpp)
 target_compile_options(StickManeuverTest PRIVATE -Wall -Wextra)
 target_link_libraries(StickManeuverTest PRIVATE oi3_simulator)
 
+# 估计误差入环：信息不完美时的性能
+add_executable(EstimationInLoopTest core/control/EstimationInLoopTest.cpp)
+target_compile_options(EstimationInLoopTest PRIVATE -Wall -Wextra)
+target_link_libraries(EstimationInLoopTest PRIVATE oi3_simulator)
+
 # 全扰动叠加：补偿机制的组合正确性
 add_executable(CombinedDisturbanceTest core/control/CombinedDisturbanceTest.cpp)
 target_compile_options(CombinedDisturbanceTest PRIVATE -Wall -Wextra)

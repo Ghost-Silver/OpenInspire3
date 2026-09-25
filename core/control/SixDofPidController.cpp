@@ -350,11 +350,11 @@ SixDofCommand solveCommand(const SixDofConfig &cfg, const SixDofPidGains &gains,
 SixDofCommand SixDofPidController::publish(SixDofCommand cmd) {
     _last_thrust = cmd.thrust_body; // 供下一拍的入流补偿与扰动观测器使用
 
-    // 清零本拍记录的已解释损失。三条路径共用此出口，故不会遗漏 ——
-    // 下一拍的入流块（若存在）会重新写入，观测器则在其后读取。
-    _last_modeled_loss_ned[0] = 0.0;
-    _last_modeled_loss_ned[1] = 0.0;
-    _last_modeled_loss_ned[2] = 0.0;
+    // 清零本拍记录的已建模扰动。三条路径共用此出口，故不会遗漏 ——
+    // 下一拍的前馈块（若存在）会重新累加写入，观测器则在其后读取。
+    _last_modeled_disturb[0] = 0.0;
+    _last_modeled_disturb[1] = 0.0;
+    _last_modeled_disturb[2] = 0.0;
     return cmd;
 }
 
@@ -410,19 +410,13 @@ std::array<double, 3> SixDofPidController::finalizeAccel(const double raw[3],
                     makeVec3(0.0f, 0.0f, static_cast<float>(-_last_thrust));
                 const V3d f_ned = readV3(rotateBodyToNed(state.quat, f_body_t));
 
-                // 扣除**已被模型解释**的效应（入流损失等）。
-                //
-                // 实际力 = R·(−T·ẑ) − loss_ned。用水平特例验符号：R=I 时
-                // 实际力 z 分量 = −T − (−T·corr) = −T(1−corr)，与动力学一致。
-                //
-                // 不扣则观测器把已知效应当未知扰动重复补偿 —— 实测差 7000 倍。
-                const double a_applied[3] = {f_ned.x / m - _last_modeled_loss_ned[0] / m,
-                                             f_ned.y / m - _last_modeled_loss_ned[1] / m,
-                                             f_ned.z / m - _last_modeled_loss_ned[2] / m + g};
+                // 仅推力模型算出的加速度：a_thrust = R·(−T·ẑ)/m + g
+                const double a_thrust[3] = {f_ned.x / m, f_ned.y / m, f_ned.z / m + g};
 
                 for (int i = 0; i < 3; ++i) {
                     const double a_meas = (v_arr[i] - _obs_prev_vel[i]) / dt;
-                    const double resid = a_meas - a_applied[i];
+                    // 统一规则：残差 = 实测 − 仅推力模型 − 所有已建模扰动
+                    const double resid = a_meas - a_thrust[i] - _last_modeled_disturb[i];
                     _d_hat[i] += alpha * (resid - _d_hat[i]);
                     _d_hat[i] = std::max(-lim, std::min(lim, _d_hat[i]));
                     _obs_prev_vel[i] = v_arr[i];
@@ -533,6 +527,12 @@ SixDofCommand SixDofPidController::computeWithWind(const SixDofState &state,
         const double rz = vel.z - v_wind[2];
         const double sp = std::sqrt(rx * rx + ry * ry + rz * rz);
         a_ff = {kx * sp * rx / m, ky * sp * ry / m, kz * sp * rz / m};
+
+        // 记录风阻已被前馈处理。阻力加速度 d_drag = −a_ff，故已建模扰动为 −a_ff。
+        // 不记录则观测器把阻力当未知扰动再补一次 —— 实测叠加后比不补偿还差。
+        _last_modeled_disturb[0] += -a_ff.x;
+        _last_modeled_disturb[1] += -a_ff.y;
+        _last_modeled_disturb[2] += -a_ff.z;
     }
 
     // 桨盘入流补偿：实际推力 T_eff = T·(1 − mu·v_axial)，指令推力被入流打了
@@ -591,11 +591,10 @@ SixDofCommand SixDofPidController::computeWithWind(const SixDofState &state,
         a_ff.y += ln[1] / m;
         a_ff.z += ln[2] / m;
 
-        // 记录**已被模型解释**的损失，供观测器从残差中扣除。
-        // 否则观测器会把同一份损失再补一次（见头文件说明）。
-        _last_modeled_loss_ned[0] = ln[0];
-        _last_modeled_loss_ned[1] = ln[1];
-        _last_modeled_loss_ned[2] = ln[2];
+        // 记录入流损失已被前馈处理。损失等效的扰动加速度为 −loss_ned/m。
+        _last_modeled_disturb[0] += -ln[0] / m;
+        _last_modeled_disturb[1] += -ln[1] / m;
+        _last_modeled_disturb[2] += -ln[2] / m;
     }
 
     const V3d e_pos{tgt.x - pos.x, tgt.y - pos.y, tgt.z - pos.z};

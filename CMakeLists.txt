@@ -125,6 +125,11 @@ add_executable(StickManeuverTest core/control/StickManeuverTest.cpp)
 target_compile_options(StickManeuverTest PRIVATE -Wall -Wextra)
 target_link_libraries(StickManeuverTest PRIVATE oi3_simulator)
 
+# 全扰动叠加：补偿机制的组合正确性
+add_executable(CombinedDisturbanceTest core/control/CombinedDisturbanceTest.cpp)
+target_compile_options(CombinedDisturbanceTest PRIVATE -Wall -Wextra)
+target_link_libraries(CombinedDisturbanceTest PRIVATE oi3_simulator)
+
 # 观测器 vs 自适应：分工边界
 add_executable(ObserverVsAdaptiveTest core/control/ObserverVsAdaptiveTest.cpp)
 target_compile_options(ObserverVsAdaptiveTest PRIVATE -Wall -Wextra)

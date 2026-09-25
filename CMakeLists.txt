@@ -375,3 +375,18 @@ add_executable(PPOAgentTest
 target_include_directories(PPOAgentTest PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/core/rl ${CMAKE_CURRENT_SOURCE_DIR}/core/Map)
 target_link_libraries(PPOAgentTest PRIVATE oi3_simulator)
+
+# ===========================================================================
+# core/guidance/ —— 制导层
+# Minimum-Snap 轨迹生成器：制导层的第一个模块。
+# 控制器只跟踪被喂给它的轨迹，在此之前仓库里没有任何东西生成那条轨迹。
+# ===========================================================================
+add_executable(MinimumSnapTest
+        core/guidance/MinimumSnapTrajectory.cpp
+        core/guidance/MinimumSnapTest.cpp)
+target_include_directories(MinimumSnapTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/guidance
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/control)
+target_compile_options(MinimumSnapTest PRIVATE -Wall -Wextra)
+target_link_libraries(MinimumSnapTest PRIVATE oi3_simulator)
+add_test(NAME minimum_snap COMMAND MinimumSnapTest)

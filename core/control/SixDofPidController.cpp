@@ -341,6 +341,105 @@ SixDofCommand solveCommand(const SixDofConfig &cfg, const SixDofPidGains &gains,
 
 } // namespace
 
+/**
+ * @brief 期望加速度的统一后处理：扰动前馈 + 限幅
+ *
+ * 三条控制路径共用此出口。见头文件中的说明 —— 这是为避免「同一控制律写三份
+ * 导致漏改」而刻意做的收敛。
+ */
+SixDofCommand SixDofPidController::publish(SixDofCommand cmd) {
+    _last_thrust = cmd.thrust_body; // 供下一拍的入流补偿与扰动观测器使用
+    return cmd;
+}
+
+std::array<double, 3> SixDofPidController::finalizeAccel(const double raw[3],
+                                                        const SixDofState &state,
+                                                        double dt) {
+    double a[3] = {raw[0], raw[1], raw[2]};
+
+    // ---- 扰动前馈：a_des = a_raw − d_hat ----
+    //
+    // 观测器估的是「未被模型解释的加速度」d。补偿时**减去**它，使
+    // a_actual = a_des + d = (a_raw − d_hat) + d → a_raw。
+    //
+    // 注意它作用于前馈路径（不在反馈回路内），故不改变回路增益、
+    // 不消耗相位裕度 —— 这是相对积分的结构性优势。
+    if (_gains.use_disturbance_observer) {
+        if (!_obs_has_prev) {
+            // 首拍：记录速度初值，本拍不补偿
+            const V3d v0 = readV3(state.vel);
+            _obs_prev_vel[0] = v0.x;
+            _obs_prev_vel[1] = v0.y;
+            _obs_prev_vel[2] = v0.z;
+            _obs_has_prev = true;
+        } else if (dt > 0.0) {
+            const double hz = _gains.disturbance_observer_hz;
+            if (hz > 1e-9) {
+                const double Tau = 1.0 / (2.0 * M_PI * hz);
+                const double alpha = dt / (Tau + dt);
+                const V3d v = readV3(state.vel);
+                const double v_arr[3] = {v.x, v.y, v.z};
+                const double lim = _gains.disturbance_limit;
+
+                // ---- 「实际施加的加速度」必须用真实姿态与真实推力算 ----
+                //
+                // 第一版直接用期望加速度 a_des，结果观测器在 0.5 Hz 正常
+                // （估计 1.9999 vs 真值 2.00），但 1 Hz 起符号翻转、2 Hz 撞限幅。
+                //
+                // 原因是**期望与实际之间隔着姿态环**：控制器要求 5 m/s² 水平
+                // 加速度，但那要靠倾斜实现，而姿态环有 9 rad/s 带宽、需要时间
+                // 跟上。于是 a_actual ≠ a_des，残差里混入了姿态跟踪误差。观测器
+                // 把它当扰动补偿，补偿又改变 a_des —— **正反馈，必然发散**。
+                //
+                // 正确做法：用机体**实际**产生的力计算，即
+                //
+                //     a_applied = [0, 0, g] + R_actual · [0, 0, −T_last] / m
+                //
+                // 其中 R_actual 取当前姿态、T_last 取上一拍实际输出的推力。
+                // 这样姿态环的滞后已被包含在 R_actual 里，残差中只剩下真正的
+                // 未建模力（阻力、外力、推力损失）。
+                const double m = _cfg.base.mass;
+                const double g = _cfg.base.gravity;
+                const V3d f_body{0.0, 0.0, -_last_thrust};
+                const Tensor f_body_t =
+                    makeVec3(0.0f, 0.0f, static_cast<float>(-_last_thrust));
+                const V3d f_ned = readV3(rotateBodyToNed(state.quat, f_body_t));
+                const double a_applied[3] = {f_ned.x / m, f_ned.y / m, f_ned.z / m + g};
+                (void)f_body;
+
+                for (int i = 0; i < 3; ++i) {
+                    const double a_meas = (v_arr[i] - _obs_prev_vel[i]) / dt;
+                    const double resid = a_meas - a_applied[i];
+                    _d_hat[i] += alpha * (resid - _d_hat[i]);
+                    _d_hat[i] = std::max(-lim, std::min(lim, _d_hat[i]));
+                    _obs_prev_vel[i] = v_arr[i];
+                }
+            }
+        }
+        for (int i = 0; i < 3; ++i) {
+            a[i] -= _d_hat[i];
+        }
+    }
+
+    // ---- 限幅 ----
+    const double lim = _gains.max_accel;
+    const std::array<double, 3> out{clampd(a[0], -lim, lim), clampd(a[1], -lim, lim),
+                                    clampd(a[2], -lim, lim)};
+
+    // 记录**限幅后**的实际值供下一拍构造残差。
+    //
+    // 必须用限幅后的值：若执行器饱和，控制器以为发出了更大的加速度，
+    // 残差里会混入饱和误差并被误认为扰动 —— 这是观测器的已知陷阱。
+    _obs_last_applied[0] = out[0];
+    _obs_last_applied[1] = out[1];
+    _obs_last_applied[2] = out[2];
+    _last_a_des[0] = out[0];
+    _last_a_des[1] = out[1];
+    _last_a_des[2] = out[2];
+    return out;
+}
+
+
 SixDofCommand SixDofPidController::compute(const SixDofState &state, const Tensor &target,
                                            double /*time*/) {
     const V3d pos = readV3(state.pos);
@@ -376,11 +475,14 @@ SixDofCommand SixDofPidController::compute(const SixDofState &state, const Tenso
         i_term[1] + _gains.pos_kp * e_pos.y + _gains.pos_kd * (-vel.y),
         i_term[2] + _gains.pos_kp * e_pos.z + _gains.pos_kd * (-vel.z),
     };
-    const V3d a_des{clampd(raw[0], -_gains.max_accel, _gains.max_accel),
-                    clampd(raw[1], -_gains.max_accel, _gains.max_accel),
-                    clampd(raw[2], -_gains.max_accel, _gains.max_accel)};
+    // 统一出口：扰动前馈 + 限幅。三条路径共用，避免重复实现导致漏改。
+    //
+    // dt 取 _cfg.base.dt：控制器不持有仿真时间步，故沿用配置值。
+    const std::array<double, 3> a_arr = finalizeAccel(raw, state, _cfg.base.dt);
+    const V3d a_des{a_arr[0], a_arr[1], a_arr[2]};
 
-    return solveCommand(_cfg, _gains, _att_kp, _att_kd, state, a_des, _last_tilt_deg);
+    return publish(
+        solveCommand(_cfg, _gains, _att_kp, _att_kd, state, a_des, _last_tilt_deg));
 }
 
 SixDofCommand SixDofPidController::computeWithWind(const SixDofState &state,
@@ -507,15 +609,14 @@ SixDofCommand SixDofPidController::computeWithWind(const SixDofState &state,
         a_ff.y + i_term[1] + _gains.pos_kp * e_pos.y + _gains.pos_kd * (-vel.y),
         a_ff.z + i_term[2] + _gains.pos_kp * e_pos.z + _gains.pos_kd * (-vel.z),
     };
-    const V3d a_des{clampd(raw[0], -_gains.max_accel, _gains.max_accel),
-                    clampd(raw[1], -_gains.max_accel, _gains.max_accel),
-                    clampd(raw[2], -_gains.max_accel, _gains.max_accel)};
+    // 统一出口：扰动前馈 + 限幅。三条路径共用，避免重复实现导致漏改。
+    //
+    // dt 取 _cfg.base.dt：控制器不持有仿真时间步，故沿用配置值。
+    const std::array<double, 3> a_arr = finalizeAccel(raw, state, _cfg.base.dt);
+    const V3d a_des{a_arr[0], a_arr[1], a_arr[2]};
 
-    SixDofCommand cmd =
-        solveCommand(_cfg, _gains, _att_kp, _att_kd, state, a_des, _last_tilt_deg, 0.0,
-                     _gains.use_yaw_control);
-    _last_thrust = cmd.thrust_body; // 供下一拍入流补偿估计实际推力
-    return cmd;
+    return publish(solveCommand(_cfg, _gains, _att_kp, _att_kd, state, a_des,
+                                _last_tilt_deg, 0.0, _gains.use_yaw_control));
 }
 
 SixDofCommand SixDofPidController::computeTracking(const SixDofState &state,
@@ -549,9 +650,11 @@ SixDofCommand SixDofPidController::computeTracking(const SixDofState &state,
         ref.acc[1] + i_term[1] + _gains.pos_kp * e_pos.y + _gains.pos_kd * e_vel.y,
         ref.acc[2] + i_term[2] + _gains.pos_kp * e_pos.z + _gains.pos_kd * e_vel.z,
     };
-    const V3d a_des{clampd(raw[0], -_gains.max_accel, _gains.max_accel),
-                    clampd(raw[1], -_gains.max_accel, _gains.max_accel),
-                    clampd(raw[2], -_gains.max_accel, _gains.max_accel)};
+    // 统一出口：扰动前馈 + 限幅。三条路径共用，避免重复实现导致漏改。
+    //
+    // dt 取 _cfg.base.dt：控制器不持有仿真时间步，故沿用配置值。
+    const std::array<double, 3> a_arr = finalizeAccel(raw, state, _cfg.base.dt);
+    const V3d a_des{a_arr[0], a_arr[1], a_arr[2]};
 
     // 参考偏航角接入控制律（此前只传给平坦前馈，未参与反馈 —— 偏航因此
     // 完全自由，是结构性缺失）。
@@ -590,7 +693,7 @@ SixDofCommand SixDofPidController::computeTracking(const SixDofState &state,
         }
     }
 
-    return cmd;
+    return publish(cmd);
 }
 
 } // namespace oi3

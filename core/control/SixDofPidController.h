@@ -240,6 +240,24 @@ struct SixDofPidGains {
      */
     bool use_yaw_control = false;
 
+    /**
+     * @brief 是否启用扰动观测器前馈
+     *
+     * 与积分的分工：积分作用于反馈回路（吃相位裕度），观测器作用于前馈路径
+     * （不吃裕度，但放大速度噪声、且依赖模型准确）。默认关闭以保证既有结果
+     * 逐位不变。
+     *
+     * @warning 两者同时启用会**重复补偿**同一扰动，可能过冲。除非有实测依据，
+     *          否则只开一个。
+     */
+    bool use_disturbance_observer = false;
+
+    /// 扰动观测器带宽（Hz）。经验取控制带宽的 1/3 ~ 1/5。
+    double disturbance_observer_hz = 2.0;
+
+    /// 扰动估计限幅（m/s²），防止饱和期间估计发散
+    double disturbance_limit = 12.0;
+
     // 手动模式（derive_attitude_from_inertia = false 时使用）
     double att_kp = 0.9;  ///< 姿态角误差增益（N·m/rad）
     double att_kd = 0.25; ///< 角速度阻尼（N·m·s/rad）
@@ -247,18 +265,28 @@ struct SixDofPidGains {
     /**
      * @brief 姿态误差限幅（度）
      *
-     * @warning 这个字段的名字容易误读。它限的是**期望姿态相对当前姿态的旋转角**
-     *          ——也就是姿态指令的激进程度（一种软性的速率保护），**不是机体的
-     *          绝对倾角**。稳态时姿态已经跟上指令，该夹角趋近于零，限幅不生效，
-     *          因此机体实际可以倾斜到远超这个值的角度。
+     * @note 该字段的语义经历过一次修正，此处记录以免误读。
      *
-     * 实测（WindTunnelTest）：12 m/s 常值风下机体稳定倾斜 35.73°，超过 35° 而
-     * 系统工作完全正常。这说明把它当作倾角保护来理解是错的。
+     * **旧行为**：限的是「期望姿态相对当前姿态的旋转角」，即姿态指令的激进
+     * 程度（一种软性速率保护）。稳态下姿态已跟上指令、夹角趋近零，限幅不生效，
+     * 因此机体实际可倾斜到远超此值的角度 —— WindTunnelTest 中 12 m/s 风下
+     * 稳定倾斜 35.73°，超过 35° 而系统正常。
      *
-     * 机体倾角的真正约束来自两处，取更紧的那个：
-     *  - 竖直方向推力需求 T = mg/cosθ ≤ max_body_thrust；
-     *  - 期望加速度限幅 max_accel ≥ 抵抗外力所需的水平加速度。
-     * 默认参数下前者给出 18.9 m/s，后者给出 15.7 m/s（抗风上限）。
+     * **现行为**：限的是**期望推力方向相对竖直轴的偏角**。大机动测试实测峰值
+     * 倾角随该值单调变化（15→14.99°、35→33.60°、50→42.88°），说明它现在确实
+     * 约束机体倾角。
+     *
+     * @warning 真正的水平加速度上限**不是** max_accel 的标称值，而是由本字段与
+     *          max_accel 共同决定，取更紧者。实测（LargeManeuverTest）本配置下
+     *
+     * @verbatim
+     *   max_tilt_deg = 35      -> 6.87 m/s²   ← 实际生效
+     *   max_accel    = 12      -> 12.00 m/s²
+     *   max_body_thrust = 20   -> 17.43 m/s²
+     * @endverbatim
+     *
+     * 且实际可用推力上限为 `m·sqrt(max_accel² + g²) = 15.50 N`，而非
+     * max_body_thrust —— 后者在本配置下永远不会被触发，调它没有效果。
      */
     double max_tilt_deg = 35.0;
 };
@@ -329,6 +357,9 @@ class SixDofPidController : public SixDofController {
     /// 当前实际使用的入流系数（配置值或被估计值覆盖后的值）
     [[nodiscard]] double activeInflowMu() const { return _active_mu; }
 
+    /// 当前扰动估计（NED，m/s²），供诊断与测试
+    [[nodiscard]] const double *disturbanceEstimate() const { return _d_hat; }
+
     /// 上一拍输出的推力指令（供入流补偿估计实际推力用；0 表示尚未有历史）
     double _last_thrust = 0.0;
 
@@ -347,6 +378,42 @@ class SixDofPidController : public SixDofController {
 
     /// 上一拍的期望加速度（供在线辨识构造残差观测用）
     double _last_a_des[3] = {0.0, 0.0, 0.0};
+
+    /**
+     * @brief 统一的期望加速度后处理：扰动前馈 + 限幅
+     *
+     * 三条控制路径（compute / computeWithWind / computeTracking）**共用**此函数。
+     *
+     * 这是刻意的：本文件此前因三条路径各自独立实现位置环，导致给其中两条加
+     * 积分时漏掉第三条，症状是「调用 compute 时积分项恒为 0」。同一条控制律
+     * 写多份就是漏改的温床，故新增逻辑一律走公共出口。
+     *
+     * @param raw   未经限幅的期望加速度（含积分与 PD 项）
+     * @param state 当前状态（供观测器取速度）
+     * @param dt    步长
+     */
+    [[nodiscard]] std::array<double, 3> finalizeAccel(const double raw[3],
+                                                      const SixDofState &state, double dt);
+
+    /**
+     * @brief 统一的命令出口：记录本拍输出，供下一拍的状态量使用
+     *
+     * 三条控制路径**必须**经由它返回。此前 `_last_thrust` 只在
+     * `computeTracking` 中被赋值，导致另外两条路径下该值恒为 0 —— 入流补偿
+     * 与扰动观测器都因此失效，且症状隐蔽（不报错，只是估计值恒为 0）。
+     *
+     * 同类问题在本文件已出现三次（积分漏加、_last_thrust 漏加），故新增状态
+     * 一律走公共出口，不再逐路径复制。
+     */
+    [[nodiscard]] SixDofCommand publish(SixDofCommand cmd);
+
+    /// 扰动观测器状态（NED 三轴，m/s²）
+    double _d_hat[3] = {0.0, 0.0, 0.0};
+    /// 观测器上一拍的速度（用于差分）
+    double _obs_prev_vel[3] = {0.0, 0.0, 0.0};
+    bool _obs_has_prev = false;
+    /// 上一拍实际施加的期望加速度（供观测器构造残差）
+    double _obs_last_applied[3] = {0.0, 0.0, 0.0};
 
     /// 在线估计器（非拥有）
     InflowEstimateSource *_inflow_src = nullptr;

@@ -125,6 +125,11 @@ add_executable(StickManeuverTest core/control/StickManeuverTest.cpp)
 target_compile_options(StickManeuverTest PRIVATE -Wall -Wextra)
 target_link_libraries(StickManeuverTest PRIVATE oi3_simulator)
 
+# 扰动观测器：直流抑制、相位代价与噪声
+add_executable(DisturbanceObserverTest core/control/DisturbanceObserverTest.cpp)
+target_compile_options(DisturbanceObserverTest PRIVATE -Wall -Wextra)
+target_link_libraries(DisturbanceObserverTest PRIVATE oi3_simulator)
+
 # 大机动：倾角约束链、推力补偿与饱和
 add_executable(LargeManeuverTest core/control/LargeManeuverTest.cpp)
 target_compile_options(LargeManeuverTest PRIVATE -Wall -Wextra)

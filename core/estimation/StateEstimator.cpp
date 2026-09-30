@@ -91,7 +91,7 @@ void integrateQuat(std::array<double, 4> &q, const std::array<double, 3> &w, dou
 
 } // namespace
 
-StateEstimator::StateEstimator(EstimatorConfig cfg) : _cfg(cfg) {}
+StateEstimator::StateEstimator(EstimatorConfig cfg) : _cfg(cfg), _health(cfg.sensor_health) {}
 
 void StateEstimator::reset(const std::array<double, 4> &initial_quat) {
     _quat = initial_quat;
@@ -101,6 +101,9 @@ void StateEstimator::reset(const std::array<double, 4> &initial_quat) {
     _pos = {0.0, 0.0, 0.0};
     _vel = {0.0, 0.0, 0.0};
     _has_pos = false;
+    // 健康监测随估计器一同复位：换场地或重启后应重新积累统计，
+    // 否则上一段数据的故障判定会残留到新数据上。
+    _health.reset();
 }
 
 void StateEstimator::setAttitude(const std::array<double, 4> &quat) {
@@ -160,6 +163,23 @@ void StateEstimator::updateImu(const ImuSample &imu, double dt) {
                 _gyro_bias[idx] -= _cfg.bias_correction * e[idx] * dt;
             }
         }
+
+        // 健康监测：叉积误差 e 的模长就是「测量比力方向 vs 姿态估计方向」的偏差，
+        // 是本模块最主要的检测量（能测出偏置，而模长判据不能）。
+        // 只有启用时才计算——未启用时这里完全不执行，既有结果逐位不变。
+        if (_cfg.sensor_health.enabled) {
+            const double resid = std::sqrt(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
+            _health.update(imu.accel, imu.gyro, resid);
+        }
+    }
+
+    // 加速度计归零（an <= 1e-6）时上面的分支不进入，此处补一次 update，
+    // 残差按 0 计。这一补很关键：模长判据是检测「彻底掉线」的唯一手段，
+    // 若此时不调用 update，该判据永远没有执行机会 —— 第一版实现就是漏了
+    // 这一处，导致加速度计归零被完全漏报（测试第 2 节捕获）。
+    // 掉线由 accel_mag_min 判据命中，不依赖残差，故 resid=0 不影响判定。
+    if (_cfg.sensor_health.enabled && an <= 1e-6) {
+        _health.update(imu.accel, imu.gyro, 0.0);
     }
 
     _omega = w;

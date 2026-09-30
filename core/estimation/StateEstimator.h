@@ -67,6 +67,7 @@
 #define OI3_STATE_ESTIMATOR_H
 
 #include "ImuModel.h"
+#include "SensorHealth.h"
 #include "SixDofTypes.h"
 
 #include <array>
@@ -134,6 +135,15 @@ struct EstimatorConfig {
 
     /// 是否启用偏置估计
     bool estimate_gyro_bias = true;
+
+    /**
+     * @brief IMU 传感器健康监测配置
+     *
+     * 默认**关闭**。原因与本项目所有新效应一致：接入不得改变既有结果。
+     * 关闭时 updateImu 完全不触碰健康监测，既有 29 个测试逐位不变。
+     * 启用后每步多算一次残差模长（三次乘法与一次开方），代价可忽略。
+     */
+    SensorHealthConfig sensor_health{};
 };
 
 /**
@@ -185,6 +195,14 @@ public:
     /// 位置测量是否已经接入（未接入时位置保持初值）
     [[nodiscard]] bool hasPosition() const { return _has_pos; }
 
+    /**
+     * @brief IMU 健康报告（仅在 sensor_health.enabled 时有意义）
+     *
+     * 未启用时返回默认构造的报告（各项为 Unknown/None），调用方应先检查
+     * report().samples > 0 再据其决策，避免把「未监测」误读为「健康」。
+     */
+    [[nodiscard]] const SensorHealthReport &sensorHealth() const { return _health.report(); }
+
 private:
     EstimatorConfig _cfg;
 
@@ -194,6 +212,9 @@ private:
     std::array<double, 3> _pos{};
     std::array<double, 3> _vel{};
     bool _has_pos = false;
+
+    /// 传感器健康监测（默认关闭，见 EstimatorConfig::sensor_health）
+    SensorHealth _health;
 };
 
 } // namespace oi3

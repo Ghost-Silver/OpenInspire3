@@ -109,6 +109,23 @@ add_executable(EstimatorTest core/estimation/EstimatorTest.cpp)
 target_compile_options(EstimatorTest PRIVATE -Wall -Wextra)
 target_link_libraries(EstimatorTest PRIVATE oi3_simulator)
 
+# IMU 传感器健康监测：检测掉线 / 卡死 / 说谎三类失效
+add_executable(SensorHealthTest core/estimation/SensorHealthTest.cpp)
+target_compile_options(SensorHealthTest PRIVATE -Wall -Wextra)
+target_link_libraries(SensorHealthTest PRIVATE oi3_simulator)
+
+# IMU 失效后的降级决策：由健康状态推出「现在该怎么办」
+add_executable(ImuDegradePolicyTest core/estimation/ImuDegradePolicyTest.cpp)
+target_compile_options(ImuDegradePolicyTest PRIVATE -Wall -Wextra)
+target_link_libraries(ImuDegradePolicyTest PRIVATE oi3_simulator)
+
+# 端到端：注入真实 IMU 故障 → 检测 → 降级决策（验证组合正确性）
+add_executable(ImuFaultToleranceTest core/estimation/ImuFaultToleranceTest.cpp)
+target_compile_options(ImuFaultToleranceTest PRIVATE -Wall -Wextra)
+target_link_libraries(ImuFaultToleranceTest PRIVATE oi3_simulator)
+
+
+
 # 轨迹跟踪能力实测：定点 PID 用于跟踪时的系统性滞后
 # 可控旋转容错：三电机维持倾角与高度
 add_executable(SpinningRecoveryTest core/control/SpinningRecoveryTest.cpp)

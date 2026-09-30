@@ -124,6 +124,11 @@ add_executable(ImuFaultToleranceTest core/estimation/ImuFaultToleranceTest.cpp)
 target_compile_options(ImuFaultToleranceTest PRIVATE -Wall -Wextra)
 target_link_libraries(ImuFaultToleranceTest PRIVATE oi3_simulator)
 
+# 闭环对照：陀螺失效后「执行降级」是否真的比「不降级」更好
+add_executable(ImuDegradeClosedLoopTest core/estimation/ImuDegradeClosedLoopTest.cpp)
+target_compile_options(ImuDegradeClosedLoopTest PRIVATE -Wall -Wextra)
+target_link_libraries(ImuDegradeClosedLoopTest PRIVATE oi3_simulator)
+
 
 
 # 轨迹跟踪能力实测：定点 PID 用于跟踪时的系统性滞后

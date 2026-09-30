@@ -29,6 +29,7 @@
  * - 是否安全着陆：触地时倾角小且下降率可控
  */
 
+#include "DegradeExecutor.h"
 #include "ImuDegradePolicy.h"
 #include "ImuModel.h"
 #include "SensorHealth.h"
@@ -108,10 +109,15 @@ struct ClosedLoopOut {
 /**
  * @brief 跑一次闭环
  *
- * @param degrade 陀螺失效后是否执行降级（紧急降落）
+ * @param use_executor true = 走真实降级通路（DegradeExecutor 包装 PID）
+ *                     false = 对照组（裸 PID，即不降级）
  * @param steps   总步数
+ *
+ * @note 降级组走的是**生产通路**：ImuDegradePolicy 决策 → DegradeExecutor
+ *       执行。而非在测试里手写一段紧急降落逻辑——那只能证明「想法可行」，
+ *       不能证明「接入后可行」。
  */
-ClosedLoopOut runClosedLoop(bool degrade, int steps = 8000) {
+ClosedLoopOut runClosedLoop(bool use_executor, int steps = 8000) {
     SixDofConfig cfg;
     const double dt = cfg.base.dt;
 
@@ -120,6 +126,11 @@ ClosedLoopOut runClosedLoop(bool degrade, int steps = 8000) {
                      Tensor{1.0f, 0.0f, 0.0f, 0.0f}, makeVec3(0.0f, 0.0f, 0.0f)};
     SixDofSimulator sim(cfg, init);
     SixDofPidController ctrl(cfg, {});
+    // 降级执行器包装 PID：走真实降级通路。悬停推力按机体质心重填入。
+    DegradeExecutorConfig exec_cfg;
+    exec_cfg.hover_thrust = static_cast<double>(cfg.base.mass) *
+                            static_cast<double>(cfg.base.gravity);
+    DegradeExecutor executor(ctrl, exec_cfg);
 
     ImuConfig icfg;
     icfg.explicit_bias = true;
@@ -159,17 +170,16 @@ ClosedLoopOut runClosedLoop(bool degrade, int steps = 8000) {
         }
 
         // --- 控制：使用估计状态 ---
-        SixDofCommand cmd;
         const auto &h = est.sensorHealth();
         const DegradeDecision d = policy.decide(h);
-        const bool emergency = (d.action == DegradeAction::EmergencyLand);
 
-        if (emergency && degrade) {
-            // 紧急降落：放弃姿态控制与安全高度保持，直接降推力使其下降。
-            // 陀螺已失效，姿态反馈不可信，继续做姿态修正只会加剧发散。
-            cmd.thrust_body = cfg.base.mass * cfg.base.gravity * 0.6f; // 低于悬停推力
-            cmd.torque = makeVec3(0.0f, 0.0f, 0.0f);                   // 零力矩
+        SixDofCommand cmd;
+        if (use_executor) {
+            // 真实通路：决策交给执行器，由它决定是否接管
+            executor.setDecision(d);
+            cmd = executor.compute(est.state(), target, t);
         } else {
+            // 对照组：裸 PID，忽略故障继续执行悬停任务
             cmd = ctrl.compute(est.state(), target, t);
         }
 
@@ -212,7 +222,7 @@ ClosedLoopOut runClosedLoop(bool degrade, int steps = 8000) {
 int main() {
     std::printf("=== ImuDegradeClosedLoopTest: 降级动作是否有用（对照实验）===\n\n");
     std::printf("场景：5 m 悬停，3.0 s 时陀螺彻底失效（输出恒零）\n");
-    std::printf("A 组 = 不降级（继续悬停任务）；B 组 = 执行紧急降落\n\n");
+    std::printf("A 组 = 裸 PID（不降级）；B 组 = DegradeExecutor 包装（真实降级通路）\n\n");
 
     const auto a = runClosedLoop(false);
     const auto b = runClosedLoop(true);

@@ -129,6 +129,11 @@ add_executable(ImuDegradeClosedLoopTest core/estimation/ImuDegradeClosedLoopTest
 target_compile_options(ImuDegradeClosedLoopTest PRIVATE -Wall -Wextra)
 target_link_libraries(ImuDegradeClosedLoopTest PRIVATE oi3_simulator)
 
+# 降级执行器：把 ImuDegradePolicy 的决策落到实际控制指令
+add_executable(DegradeExecutorTest core/control/DegradeExecutorTest.cpp)
+target_compile_options(DegradeExecutorTest PRIVATE -Wall -Wextra)
+target_link_libraries(DegradeExecutorTest PRIVATE oi3_simulator)
+
 
 
 # 轨迹跟踪能力实测：定点 PID 用于跟踪时的系统性滞后

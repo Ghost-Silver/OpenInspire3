@@ -64,8 +64,15 @@ bool FlightControlLoop::runOneCycle() {
     // ---- 5. 应用降级（协调：估计器 + 执行器） ----
     applyDegradation(_decision);
 
-    // ---- 6. 控制计算 ----
+    // ---- 5.5 通知制导源决策变化（让返航/紧急降落有轨迹可执行） ----
     const double t = _sensors->time();
+    const auto est_pos_vec = toVector(_estimator.state().pos);
+    const std::array<double, 3> est_pos = {static_cast<double>(est_pos_vec[0]),
+                                           static_cast<double>(est_pos_vec[1]),
+                                           static_cast<double>(est_pos_vec[2])};
+    _setpoint->onDecisionChanged(_decision, est_pos, t);
+
+    // ---- 6. 控制计算 ----
     const Tensor target = _setpoint->currentTarget(t);
     const SixDofCommand cmd = _executor.compute(_estimator.state(), target, t);
 

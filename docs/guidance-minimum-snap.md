@@ -141,7 +141,33 @@ Debian 12 / GCC 12.2 / 2 核 / 3.8 GB 环境下完成首次 Linux 构建，四�
 - 弧度制（非度）
 - 四元数 Hamilton `(w,x,y,z)`，机体系 → NED
 
-## 八、能力边界（调用方必须显式传入）
+## 八、P3：制导层与容错层联调（2026-10-01）
+
+`MinimumSnapTrajectory` 此前只在 `MinimumSnapTest`（39/39）中独立验证，**没有任何
+生产代码调用**。P3 将其接入降级通路：
+
+- `core/guidance/GuidanceSetpointSource.h` —— 任务模式制导源，实现 `HalSetpointSource`。
+  管理 Mission / ReturnHome / EmergencyLand 三种模式：
+  - **Mission**：返回预设任务目标（与 `FixedSetpointSource` 等价）；
+  - **ReturnHome**：触发时调用 `MinimumSnapTrajectory::build` 生成从当前位置到起飞点的
+    返航轨迹，`currentTarget` 每周期采样跟踪；
+  - **EmergencyLand**：生成从当前位置垂直下降到地面的轨迹，用于着陆检测与到达判定。
+
+- `HalSetpointSource` 新增 `onDecisionChanged` 接口，由 `FlightControlLoop` 在
+  `applyDegradation` 后调用。制导源据此切换模式并构建轨迹，**轨迹只在决策变化时
+  构建一次**，避免每周期重复求解 QP。
+
+- 验证：`GuidanceIntegrationTest`（17/17）覆盖 Mission 等价性、ReturnHome 轨迹生成与
+  跟踪（5 m 水平返航，末态距 home 0.50 m）、EmergencyLand 垂直下降轨迹构建（时长 7.29 s）、
+  模式切换往返。
+
+**一个设计取舍**：EmergencyLand 的实际控制仍由 `DegradeExecutor` 处理（切断力矩、输出
+固定下降推力），而非跟踪垂直下降轨迹。原因是陀螺失效后姿态反馈不可信，继续做姿态
+修正会加剧发散——这一点由 `imu-fault-tolerance.md` §6.1 的闭环对照证实（触地倾角
+0.38° vs 不降级的 164.61°）。垂直下降轨迹在此仅用于**着陆检测**（轨迹执行完毕即
+认为已着陆）与**地面站显示**，不参与控制律。
+
+## 九、能力边界（调用方必须显式传入）
 
 `TrajectoryLimits` 的默认值是**保守初值**，不是飞行器真实能力上限。调用方必须显式
 传入实测值，尤其：

@@ -46,6 +46,7 @@ add_library(oi3_simulator STATIC
         core/estimation/StateEstimator.cpp
         core/rl/ContinuousPPO.cpp
         core/Map/VoxelMap.cpp
+        core/guidance/MinimumSnapTrajectory.cpp
 )
 
 target_include_directories(oi3_simulator PUBLIC
@@ -56,6 +57,7 @@ target_include_directories(oi3_simulator PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/core/estimation
         ${CMAKE_CURRENT_SOURCE_DIR}/core/rl
         ${CMAKE_CURRENT_SOURCE_DIR}/core/Map
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/guidance
 )
 
 # 编译选项用 target_compile_options 而非 add_compile_options：
@@ -154,6 +156,11 @@ target_link_libraries(PositionNonIdealClosedLoopTest PRIVATE oi3_simulator)
 add_executable(FlightControlLoopTest core/control/FlightControlLoopTest.cpp)
 target_compile_options(FlightControlLoopTest PRIVATE -Wall -Wextra)
 target_link_libraries(FlightControlLoopTest PRIVATE oi3_simulator)
+
+# P3：制导层与容错层联调——返航/紧急降落轨迹生成与执行
+add_executable(GuidanceIntegrationTest core/guidance/GuidanceIntegrationTest.cpp)
+target_compile_options(GuidanceIntegrationTest PRIVATE -Wall -Wextra)
+target_link_libraries(GuidanceIntegrationTest PRIVATE oi3_simulator)
 
 # 轨迹跟踪能力实测：定点 PID 用于跟踪时的系统性滞后
 # 可控旋转容错：三电机维持倾角与高度
@@ -428,7 +435,6 @@ target_link_libraries(PPOAgentTest PRIVATE oi3_simulator)
 # 控制器只跟踪被喂给它的轨迹，在此之前仓库里没有任何东西生成那条轨迹。
 # ===========================================================================
 add_executable(MinimumSnapTest
-        core/guidance/MinimumSnapTrajectory.cpp
         core/guidance/MinimumSnapTest.cpp)
 target_include_directories(MinimumSnapTest PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/core/guidance

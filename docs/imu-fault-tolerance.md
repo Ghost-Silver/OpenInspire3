@@ -195,8 +195,9 @@ AccelBias 的第一版策略只降低倾角/速度上限，却继续让加速度
 | `AccelBiasClosedLoopTest` | **闭环对照**（加速度计偏置）+ 检测/反馈解耦 | 8/8 |
 | `PositionNonIdealClosedLoopTest` | **闭环消融**（位置量测噪声 + 延迟）+ 包络归因 | 32/32 |
 | `FlightControlLoopTest` | **主循环集成**：正常飞行、降级协调、紧急降落 | 16/16 |
+| `GuidanceIntegrationTest` | **制导联调**：Mission/ReturnHome/EmergencyLand 轨迹 | 17/17 |
 
-全量回归：仓库 53 个测试可执行文件，52 过；唯一失败 `WindTunnelTest`
+全量回归：仓库 54 个测试可执行文件，53 过；唯一失败 `WindTunnelTest`
 （12 m/s 稳态偏移断言）是容错工作开始前就存在的既有问题，与本模块无关。
 
 端到端关键数据：

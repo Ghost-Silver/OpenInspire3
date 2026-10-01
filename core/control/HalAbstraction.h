@@ -28,6 +28,7 @@
 #ifndef OI3_HAL_ABSTRACTION_H
 #define OI3_HAL_ABSTRACTION_H
 
+#include "ImuDegradePolicy.h"
 #include "ImuModel.h"
 #include "SixDofTypes.h"
 #include "Tensor.h"
@@ -90,6 +91,28 @@ class HalSetpointSource {
     /// 是否已到达当前目标（容差内）
     [[nodiscard]] virtual bool hasArrived(const std::array<double, 3> &pos,
                                           double tolerance) const = 0;
+
+    /**
+     * @brief 降级决策变化时的通知
+     *
+     * 制导源据此切换任务模式（如返航、紧急降落）。
+     * 默认空实现：不响应决策变化的源（如固定悬停点）无需重写。
+     */
+    virtual void onDecisionChanged(const DegradeDecision &d,
+                                   const std::array<double, 3> &current_pos,
+                                   double time) {
+        (void)d;
+        (void)current_pos;
+        (void)time;
+    }
+
+    /**
+     * @brief 是否已完成着陆
+     *
+     * 紧急降落模式下，制导源根据垂直下降轨迹判断飞机是否已触地。
+     * 默认返回 false。
+     */
+    [[nodiscard]] virtual bool isLanded() const { return false; }
 };
 
 } // namespace oi3

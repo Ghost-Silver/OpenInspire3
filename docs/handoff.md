@@ -165,6 +165,15 @@ P3 把 `MinimumSnapTrajectory` 接入降级通路：
 `max_jerk=30.0 m/s³`，并已同步到 `MinimumSnapTrajectory.h` 的 `TrajectoryLimits` 默认值。
 验证见 `TrajectoryLimitCalibrationTest`（4/4）与 `docs/guidance-minimum-snap.md` §十。
 
+### ~~P5：GPS 级位置噪声稳定域修复~~（已完成）
+
+结论：`StateEstimator` 新增 `pos_residual_deadzone`（位置残差死区，仅作用于速度
+校正）。GPS 级量测（σ=0.30 m）启用 0.15 m 死区后，无故障基线高度偏差从 46.04 m
+降到 3.45 m，回到有界状态；光流级等低噪声场景死区默认关闭，既有结果逐位不变。
+`PositionNonIdealClosedLoopTest` 从 32/32 更新为 36/36，新增四条断言：无死区时
+噪声仍发散、延迟单独无害、死区使噪声场景稳定、死区使噪声+延迟场景稳定。
+详见 `docs/imu-fault-tolerance.md` §6.2.4。
+
 ## 四、硬约束（务必遵守）
 
 ### 4.1 三条铁律
@@ -212,7 +221,7 @@ P3 把 `MinimumSnapTrajectory` 接入降级通路：
 | ~~降级无轨迹执行~~ | ~~返航/紧急降落只有动作码~~ | **已完成**（P3，见 §2.5） |
 | 大机动下偏置检测不可靠 | 机动污染残差基线两个量级 | 物理限制，已标注 |
 | 噪声量测下偏置漏检 | 默认机动门限被陀螺抖动掩蔽（§2.3） | 已量化，取保守侧 |
-| GPS 级噪声超出稳定域 | σ=0.30 m 令高度通道发散，属估计器+PID 层 | 已钉住断言，待滤波器改进 |
+| ~~GPS 级噪声超出稳定域~~ | ~~σ=0.30 m 令高度通道发散，属估计器+PID 层~~ | **已完成**（P5，见 §三 P5） |
 | `WindTunnelTest` 12 m/s 断言失败 | 稳态偏移 5.84 m vs 预测 1.76 m | 既有问题，与容错无关，待查 |
 
 其中「大机动下偏置检测不可靠」不是缺陷而是物理限制：机动时加速度计读的是

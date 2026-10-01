@@ -223,12 +223,26 @@ void StateEstimator::updatePosition(const std::array<double, 3> &pos_meas, doubl
     // 速度由残差驱动，不含差分带来的 1/dt 噪声放大。
     const double a = std::max(1e-6, std::min(1.0, _cfg.pos_filter_alpha));
     const double b = a * a / (2.0 - a); // 临界阻尼约束 β = α²/(2−α)
+    const double dz = std::max(0.0, _cfg.pos_residual_deadzone);
 
     for (int i = 0; i < 3; ++i) {
         const auto idx = static_cast<std::size_t>(i);
         const double r = pos_meas[idx] - _pos[idx];
         _pos[idx] += a * r;
-        _vel[idx] += (b / dt) * r;
+
+        // 死区仅作用于速度校正，位置校正仍用完整残差。
+        // 这样既抑制大噪声脉冲灌入速度，又不牺牲位置估计的响应速度。
+        double r_vel = r;
+        if (dz > 0.0) {
+            if (r_vel > dz) {
+                r_vel -= dz;
+            } else if (r_vel < -dz) {
+                r_vel += dz;
+            } else {
+                r_vel = 0.0;
+            }
+        }
+        _vel[idx] += (b / dt) * r_vel;
     }
 }
 

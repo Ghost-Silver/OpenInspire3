@@ -187,6 +187,8 @@ struct SensorSpec {
 struct RunOptions {
     /// 覆盖 SensorHealthConfig::maneuver_gyro；<0 表示用默认值 0.05
     double maneuver_gyro_override = -1.0;
+    /// 覆盖 EstimatorConfig::pos_residual_deadzone；<0 表示用默认值 0.0
+    double pos_deadzone_override = -1.0;
 };
 
 RunResult run(FaultKind fault, Mode mode, const SensorSpec &spec, uint32_t seed,
@@ -212,6 +214,9 @@ RunResult run(FaultKind fault, Mode mode, const SensorSpec &spec, uint32_t seed,
     estimator_config.sensor_health.enabled = true;
     if (opts.maneuver_gyro_override >= 0.0) {
         estimator_config.sensor_health.maneuver_gyro = opts.maneuver_gyro_override;
+    }
+    if (opts.pos_deadzone_override >= 0.0) {
+        estimator_config.pos_residual_deadzone = opts.pos_deadzone_override;
     }
     StateEstimator estimator(estimator_config);
     estimator.reset();
@@ -346,18 +351,25 @@ int main() {
     for (const SensorSpec &spec : tiers) {
         std::printf("────────── %s ──────────\n", spec.label);
 
+        // GPS 级大噪声启用位置残差死区，抑制速度脉冲；光流级保持默认关闭。
+        RunOptions dz_opts;
+        if (spec.sigma >= 0.1) {
+            dz_opts.pos_deadzone_override = 0.15;
+        }
+
         // ---- 无故障基线：量测非理想本身的影响 ----
-        const auto base = run(FaultKind::None, Mode::ApplyPolicy, spec, seed);
+        const auto base = run(FaultKind::None, Mode::ApplyPolicy, spec, seed, dz_opts);
         printRow("无故障基线", base, dt);
 
         // ---- 偏置场景：检测灵敏度与策略有效性的分离 ----
-        const auto bias_off = run(FaultKind::AccelBias, Mode::NoDegrade, spec, seed);
-        const auto bias_pol = run(FaultKind::AccelBias, Mode::ApplyPolicy, spec, seed);
+        const auto bias_off = run(FaultKind::AccelBias, Mode::NoDegrade, spec, seed, dz_opts);
+        const auto bias_pol = run(FaultKind::AccelBias, Mode::ApplyPolicy, spec, seed, dz_opts);
         RunOptions relaxed;
         relaxed.maneuver_gyro_override = 0.5; // 放宽机动门限，隔离「检测」与「策略」
+        relaxed.pos_deadzone_override = dz_opts.pos_deadzone_override;
         const auto bias_rel = run(FaultKind::AccelBias, Mode::ApplyPolicy, spec, seed, relaxed);
         // 放宽门限的误报检查：无故障时 4.0 s 目标切换瞬态（低角速度但高加速度的
-        // 阶段残差抬升）不得被误判为偏置。这是放宽门限能否成立的守门断言。
+        // 阶段残差抬升）不得误报偏置。
         const auto base_rel = run(FaultKind::None, Mode::ApplyPolicy, spec, seed, relaxed);
         printRow("偏置·不降级", bias_off, dt);
         printRow("偏置·策略(默认门限)", bias_pol, dt);
@@ -367,9 +379,9 @@ int main() {
         printRow("无故障(门限0.5,误报检查)", base_rel, dt);
 
         // ---- 失效场景：trust_position 消融 ----
-        const auto dead_off = run(FaultKind::AccelDead, Mode::NoDegrade, spec, seed);
-        const auto dead_pol = run(FaultKind::AccelDead, Mode::ApplyPolicy, spec, seed);
-        const auto dead_nop = run(FaultKind::AccelDead, Mode::ApplyPolicyNoPreinteg, spec, seed);
+        const auto dead_off = run(FaultKind::AccelDead, Mode::NoDegrade, spec, seed, dz_opts);
+        const auto dead_pol = run(FaultKind::AccelDead, Mode::ApplyPolicy, spec, seed, dz_opts);
+        const auto dead_nop = run(FaultKind::AccelDead, Mode::ApplyPolicyNoPreinteg, spec, seed, dz_opts);
         printRow("失效·不降级", dead_off, dt);
         printRow("失效·执行策略", dead_pol, dt);
         printRow("失效·关预积分(消融)", dead_nop, dt);
@@ -483,8 +495,8 @@ int main() {
         }
 
         // ================================================================
-        // 断言 3：无故障基线——光流级量测下闭环应保持悬停品质
-        // （GPS 级的稳定性边界在下方包络探针中单独量化）
+        // 断言 3：无故障基线——光流级量测下闭环应保持悬停品质；
+        //         GPS 级量测加死区后应回到有界状态（P5）
         // ================================================================
         if (spec.sigma < 0.1) {
             char buf[200];
@@ -496,6 +508,17 @@ int main() {
                           "[%s] 光流级量测下能飞到切换后的目标点（末态水平误差 <1 m）",
                           spec.label);
             check(base.final_target_err < 1.0, buf);
+        } else {
+            // P5：大噪声位置量测启用死区后，高度通道不再发散。
+            char buf[200];
+            std::snprintf(buf, sizeof(buf),
+                          "[%s] GPS 级量测加死区后悬停有界：末态高度偏差 %.2f m < 5 m",
+                          spec.label, std::fabs(base.final_alt - 5.0));
+            check(std::fabs(base.final_alt - 5.0) < 5.0, buf);
+            std::snprintf(buf, sizeof(buf),
+                          "[%s] GPS 级量测加死区后水平不漂：末态目标误差 %.2f m < 2 m",
+                          spec.label, base.final_target_err);
+            check(base.final_target_err < 2.0, buf);
         }
         std::printf("\n");
     }
@@ -510,18 +533,28 @@ int main() {
     const SensorSpec noise_only{0.30, 0, "仅噪声 σ=0.30m"};
     const SensorSpec delay_only{0.0, 100, "仅延迟 τ=100ms"};
     const SensorSpec both{0.30, 100, "噪声+延迟"};
+    // 包络探针：分别展示「死区对大噪声的挽救」与「延迟本身仍可接受」。
+    // 仅噪声 / 噪声+延迟 启用死区；仅延迟不启用，保持 P1 的归因结论。
+    RunOptions probe_noise_opts;
+    probe_noise_opts.pos_deadzone_override = 0.15;
     const RunResult env[4] = {
         run(FaultKind::None, Mode::NoDegrade, none, seed),
-        run(FaultKind::None, Mode::NoDegrade, noise_only, seed),
+        run(FaultKind::None, Mode::NoDegrade, noise_only, seed, probe_noise_opts),
         run(FaultKind::None, Mode::NoDegrade, delay_only, seed),
-        run(FaultKind::None, Mode::NoDegrade, both, seed),
+        run(FaultKind::None, Mode::NoDegrade, both, seed, probe_noise_opts),
     };
+    // 无死区对照：证明 P1 的归因仍然成立——不是噪声本身不可怕，而是死区把它摁住了。
+    const RunResult noise_no_dz = run(FaultKind::None, Mode::NoDegrade, noise_only, seed);
     const SensorSpec *specs[4] = {&none, &noise_only, &delay_only, &both};
     for (int i = 0; i < 4; ++i) {
         std::printf("%-18s 末态高度 %8.2f m（偏差 %7.2f m），末态目标误差 %6.2f m%s\n",
                     specs[i]->label, env[i].final_alt, std::fabs(env[i].final_alt - 5.0),
                     env[i].final_target_err, env[i].crashed ? "  [失控]" : "");
     }
+    std::printf("%-18s 末态高度 %8.2f m（偏差 %7.2f m），末态目标误差 %6.2f m%s\n",
+                "仅噪声(无死区)", noise_no_dz.final_alt,
+                std::fabs(noise_no_dz.final_alt - 5.0), noise_no_dz.final_target_err,
+                noise_no_dz.crashed ? "  [失控]" : "");
     {
         char buf[200];
         // 归因之一：100 ms 延迟单独作用不破坏高度通道。这保证「GPS 级失稳」
@@ -531,14 +564,22 @@ int main() {
                       std::fabs(env[2].final_alt - 5.0));
         check(std::fabs(env[2].final_alt - 5.0) < 0.5, buf);
 
-        // 归因之二：σ=0.30 m 噪声单独作用即令高度通道发散。这是当前
-        // 估计器 + PID 的稳定包络边界（速度校正增益 b/dt 把 0.3 m 噪声放大成
-        // 每拍 ~0.5 m/s 的速度脉冲）。钉住它：将来若改进滤波器使其稳定，
-        // 必须连同本断言与文档结论一起更新，而不是悄悄改变行为。
+        // 归因之二（P1 结论保留）：无死区时 σ=0.30 m 噪声确实令高度通道发散。
+        // 这是死区有效的反事实对照，防止「看起来稳定」被误读为「噪声本来就不大」。
         std::snprintf(buf, sizeof(buf),
-                      "包络归因：仅噪声 σ=0.30m 已超出稳定包络（偏差 %.2f m > 10 m）",
+                      "包络归因：无死区时仅噪声 σ=0.30m 仍发散（偏差 %.2f m > 10 m）",
+                      std::fabs(noise_no_dz.final_alt - 5.0));
+        check(std::fabs(noise_no_dz.final_alt - 5.0) > 10.0, buf);
+
+        // P5 改进效果：启用死区后，GPS 级噪声场景回到有界状态。
+        std::snprintf(buf, sizeof(buf),
+                      "死区有效：仅噪声 σ=0.30m 加死区后偏差 %.2f m < 5 m",
                       std::fabs(env[1].final_alt - 5.0));
-        check(std::fabs(env[1].final_alt - 5.0) > 10.0, buf);
+        check(std::fabs(env[1].final_alt - 5.0) < 5.0, buf);
+        std::snprintf(buf, sizeof(buf),
+                      "死区有效：噪声+延迟加死区后偏差 %.2f m < 10 m",
+                      std::fabs(env[3].final_alt - 5.0));
+        check(std::fabs(env[3].final_alt - 5.0) < 10.0, buf);
     }
 
     std::printf("\n========================================\n");

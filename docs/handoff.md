@@ -22,8 +22,10 @@ OpenInspire3（OI3）是开源的四旋翼飞控与仿真平台，以 CTorch 作
 cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && cmake --build . -j8
 ```
 
-已知的构建噪音：`tl-ArrayTest` 因缺少 `gtest/gtest.h` 路径而失败。这是环境配置问题，
-与源码无关，不影响其余目标。若需要跑该测试，配置 GTest 的 include 路径即可。
+OpenInspire3 顶层 CMake 默认设置 `TEST_ENABLED=OFF`，关闭 CTorch 子模块的 gtest 单元
+测试组（包括 `tl-ArrayTest`），因此默认构建**不依赖 GTest**。若需要单独构建 CTorch 测试，
+可在配置 CTorch 时传入 `-DTEST_ENABLED=ON` 并确保 GTest 可见（macOS Homebrew 路径
+`/opt/homebrew` 已被 CTorch CMake 处理）。
 
 ## 二、已完成并验证的工作
 
@@ -186,8 +188,19 @@ P3 把 `MinimumSnapTrajectory` 接入降级通路：
   倾角上限更紧；
 - 删除冗余变量，消除编译警告。
 
-`WindTunnelTest` 从 17/17 通过（原 17/18 失败 1 项），全量回归基线更新为
-55 个测试可执行文件全部通过（`tl-ArrayTest` 的 GTest 路径问题除外）。
+`WindTunnelTest` 从 17/17 通过（原 17/18 失败 1 项）。
+
+### ~~P7：tl-ArrayTest 构建失败修复~~（已完成）
+
+结论：`core/CTorch/CMakeLists.txt` 中 `tl-ArrayTest` 原先**无条件定义**，不受
+`TEST_ENABLED` 开关控制；而 OpenInspire3 顶层 CMake 默认 `TEST_ENABLED=OFF`，
+导致默认构建时 `tl-ArrayTest` 找不到 GTest 头文件而失败。修复内容：
+
+- 把 `tl-ArrayTest` 的定义与 `gtest_discover_tests` 包裹在 `if(TEST_ENABLED)` 中，
+  与 CTorch 其他 gtest 测试组受同一开关控制；
+- 保留顶层默认关闭策略，默认构建不再依赖 GTest。
+
+修复后 `cmake --build . -j8` 全量构建成功，54 个 OI3 测试可执行文件全部通过。
 
 ## 四、硬约束（务必遵守）
 
@@ -221,8 +234,9 @@ P3 把 `MinimumSnapTrajectory` 接入降级通路：
 
 ## 五、工作方式
 
-- 提交前跑全量回归：当前基线为仓库 55 个测试可执行文件 **全部通过**；
-  `tl-ArrayTest` 因缺少 `gtest/gtest.h` 路径构建失败，属环境配置问题，与源码无关。
+- 提交前跑全量回归：当前基线为仓库 54 个 OI3 测试可执行文件 **全部通过**；
+  `tl-ArrayTest` 等 CTorch gtest 测试默认被 `TEST_ENABLED=OFF` 关闭，不参与默认构建。
+  若启用 CTorch 测试（`-DTEST_ENABLED=ON`），需确保 GTest 已安装。
 - 数值结论需附测量环境；小效应量（<5%）在背景负载下不可信。
 - 报告与经验沉淀写入 `~/skills/reports/YYYY-MM-DD/`。
 - 遇到需要改变公共接口、默认行为或删除代码时，先确认再动手。

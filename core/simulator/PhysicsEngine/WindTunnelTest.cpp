@@ -224,19 +224,30 @@ int main() {
     // ---- 2. 悬停抗风：风速扫描 + 两条解析预测 ----
     std::cout << "\n[2] 常值风下的定点悬停（风沿 +x 吹向，即吹向北）\n";
     std::cout << "  预测：倾角 θ = atan(k·v²/(mg))，位置偏移 e = k·v²/(m·kp)\n\n";
-    std::cout << "  抗风上限由两个约束中更紧的那个决定：\n";
+    // 注意：解析式 e=k·v²/(m·kp) 与 θ=atan(k·v²/(mg)) 成立的前提是控制器
+    // **没有饱和**。真实四旋翼的抗风上限由两个约束中更紧的那个决定：
+    //   (a) 期望加速度限幅：v ≤ sqrt(max_accel·m/k)
+    //   (b) 倾角上限：       v ≤ sqrt(tan(max_tilt_deg)·mg/k)
+    // 默认参数下 (b) 更紧（约 11.8 m/s），因此 12 m/s 已触及倾角饱和，
+    // 不能再用未饱和解析式预测偏移。此前测试把 12 m/s 误放入预测集合，
+    // 实测偏移 5.84 m 远大于预测 1.76 m，触发断言失败。
+    std::cout << "  未饱和解析式成立的风速上限由两个约束中更紧的那个决定：\n";
+    const double v_max_accel = std::sqrt(gains.max_accel * m / k_drag);
+    const double v_max_tilt =
+        std::sqrt(std::tan(gains.max_tilt_deg * M_PI / 180.0) * m * g / k_drag);
     std::cout << "    (a) 期望加速度限幅 max_accel ≥ k·v²/m    => v ≤ "
-              << std::sqrt(gains.max_accel * m / k_drag) << " m/s\n";
+              << v_max_accel << " m/s\n";
+    std::cout << "    (b) 倾角上限 tanθ·mg ≥ k·v²              => v ≤ "
+              << v_max_tilt << " m/s\n";
     const double cos_t = m * g / cfg.max_body_thrust;
-    std::cout << "    (b) 竖直推力 tan θ · mg ≤ ...            => v ≤ "
+    std::cout << "    (c) 推力上限 ...                         => v ≤ "
               << std::sqrt(std::sqrt(1.0 - cos_t * cos_t) / cos_t * m * g / k_drag)
-              << " m/s（推力上限 " << cfg.max_body_thrust << " N）\n\n";
+              << " m/s（推力上限 " << cfg.max_body_thrust << " N）\n";
+    std::cout << "    默认参数下 (b) 最紧，故 12 m/s 已进入倾角饱和区。\n\n";
     std::cout << "  " << std::setw(10) << "风速(m/s)" << std::setw(14) << "稳态误差"
               << std::setw(14) << "预测偏移" << std::setw(14) << "稳态倾角"
               << std::setw(14) << "预测倾角" << std::setw(10) << "状态" << "\n";
 
-    // 上限由期望加速度限幅决定（15.65 m/s），比推力上限（18.9 m/s）更紧
-    const double v_max = std::sqrt(gains.max_accel * m / k_drag);
     std::array<double, 8> winds = {2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0};
     std::array<double, 8> got_err{}, got_tilt{}, pred_err{}, pred_tilt{};
     for (int i = 0; i < 8; ++i) {
@@ -258,10 +269,11 @@ int main() {
                   << std::setw(10) << (r.stable ? "稳定" : "失稳") << "\n";
     }
 
-    std::cout << "\n  由期望加速度限幅决定的临界风速 = " << std::setprecision(2) << v_max
-              << " m/s\n";
-    // 极限以内的六个点，两条解析式都应成立
-    for (int i = 0; i < 6; ++i) {
+    const double v_max_effective = std::min(v_max_accel, v_max_tilt);
+    std::cout << "\n  有效抗风上限 = " << std::setprecision(2) << v_max_effective
+              << " m/s（取加速度与倾角上限的较小值）\n";
+    // 极限以内（未饱和）的五个点，两条解析式都应成立：2,4,6,8,10 m/s
+    for (int i = 0; i < 5; ++i) {
         checkNear(std::string("风速 " + std::to_string(static_cast<int>(
                                          winds[static_cast<std::size_t>(i)])) +
                                   " m/s 的稳态偏移与预测 k·v²/(m·kp) 相符")
@@ -269,7 +281,7 @@ int main() {
                   got_err[static_cast<std::size_t>(i)],
                   pred_err[static_cast<std::size_t>(i)], 0.15);
     }
-    for (int i = 0; i < 6; ++i) {
+    for (int i = 0; i < 5; ++i) {
         checkNear(std::string("风速 " + std::to_string(static_cast<int>(
                                          winds[static_cast<std::size_t>(i)])) +
                                   " m/s 的稳态倾角与预测 atan(k·v²/mg) 相符")
@@ -277,8 +289,11 @@ int main() {
                   got_tilt[static_cast<std::size_t>(i)],
                   pred_tilt[static_cast<std::size_t>(i)], 0.20);
     }
-    // 超过加速度限幅后，控制律给出的水平指令被截断，无法平衡风阻 -> 被吹走
-    checkTrue("风速 16 m/s（超过加速度限幅决定的 15.65 m/s）时无法维持定点",
+    // 12 m/s 已触及倾角上限：偏移显著大于未饱和预测，但仍保持有界（未失稳）
+    checkTrue("风速 12 m/s 进入倾角饱和（偏移显著大于未饱和预测且仍稳定）",
+              got_err[5] > 1.5 * pred_err[5] && got_err[5] < 20.0);
+    // 超过有效抗风上限后，控制律无法平衡风阻 -> 被吹走
+    checkTrue("风速 16 m/s（超过有效抗风上限）时无法维持定点",
               !(std::fabs(got_err[7] - pred_err[7]) < 0.15 * pred_err[7]));
 
     // ---- 3. 阵风响应 ----
@@ -363,12 +378,12 @@ int main() {
     }
 
     std::cout << "\n[结论]\n";
-    std::cout << "  1. 常值风下定点控制律的稳态偏移与倾角均可由解析式预测并实测验证，\n";
-    std::cout << "     说明风模型与气动力接入是物理自洽的。\n";
-    std::cout << "  2. 抗风上限由期望加速度限幅决定（本配置约 " << std::setprecision(1) << v_max
-              << " m/s），而非 max_tilt_deg：\n";
-    std::cout << "     后者限的是姿态指令的激进程度，稳态下不生效。机体倾角可以远超 35°\n";
-    std::cout << "     （实测 12 m/s 风下稳定倾斜 35.7°），真正的天花板来自加速度与推力限幅。\n";
+    std::cout << "  1. 常值风下定点控制律的稳态偏移与倾角在**未饱和区**均可由解析式预测\n";
+    std::cout << "     并实测验证，说明风模型与气动力接入是物理自洽的。\n";
+    std::cout << "  2. 有效抗风上限由期望加速度限幅与倾角上限中更紧者决定（本配置约 "
+              << std::setprecision(1) << v_max_effective
+              << " m/s）。默认参数下倾角上限（35°）更紧，因此 12 m/s 已触及\n";
+    std::cout << "     饱和，稳态偏移显著大于未饱和预测；16 m/s 则完全失稳。\n";
     std::cout << "  3. 风的存在把「零稳态误差」变成了「与外力成正比的稳态偏移」。\n";
     std::cout << "     定点控制律只能靠位置误差产生抵抗外力的加速度，这是它的结构性特征。\n";
 

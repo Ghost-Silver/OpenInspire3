@@ -49,8 +49,10 @@ class GuidanceSetpointSource : public HalSetpointSource {
      */
     GuidanceSetpointSource(const Tensor &mission_target,
                            const std::array<double, 3> &home_pos,
-                           const TrajectoryLimits &limits)
-        : _mission_target(mission_target), _home_pos(home_pos), _limits(limits) {}
+                           const TrajectoryLimits &limits,
+                           GuidanceMode initial_mode = GuidanceMode::Mission)
+        : _mission_target(mission_target), _home_pos(home_pos), _limits(limits),
+          _mode(initial_mode) {}
 
     /**
      * @brief 降级决策变化时切换制导模式

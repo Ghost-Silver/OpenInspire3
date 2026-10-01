@@ -22,9 +22,9 @@ struct GuidanceWaypoint {
  *          详见 §4。
  */
 struct TrajectoryLimits {
-    double max_vel = 5.0;    ///< 最大速度（m/s）
-    double max_acc = 6.87;   ///< 最大加速度（m/s²）
-    double max_jerk = 20.0;  ///< 最大加加速度（m/s³），保守初值，待实测确认
+    double max_vel = 5.0;   ///< 最大速度（m/s），由 TrajectoryLimitCalibrationTest 标定
+    double max_acc = 5.84;  ///< 最大加速度（m/s²），= 0.9 × 35° 倾角理论上限 6.87
+    double max_jerk = 30.0; ///< 最大加加速度（m/s³），工程保守值（标定显示可达 127，但受电机/结构限制）
 };
 
 /**

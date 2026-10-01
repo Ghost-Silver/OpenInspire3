@@ -162,6 +162,11 @@ add_executable(GuidanceIntegrationTest core/guidance/GuidanceIntegrationTest.cpp
 target_compile_options(GuidanceIntegrationTest PRIVATE -Wall -Wextra)
 target_link_libraries(GuidanceIntegrationTest PRIVATE oi3_simulator)
 
+# P4：速度与 jerk 上限标定
+add_executable(TrajectoryLimitCalibrationTest core/guidance/TrajectoryLimitCalibrationTest.cpp)
+target_compile_options(TrajectoryLimitCalibrationTest PRIVATE -Wall -Wextra)
+target_link_libraries(TrajectoryLimitCalibrationTest PRIVATE oi3_simulator)
+
 # 轨迹跟踪能力实测：定点 PID 用于跟踪时的系统性滞后
 # 可控旋转容错：三电机维持倾角与高度
 add_executable(SpinningRecoveryTest core/control/SpinningRecoveryTest.cpp)

@@ -49,13 +49,21 @@ cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && cmake --build . -j8
 健康监测**默认关闭**（`EstimatorConfig::sensor_health.enabled = false`），
 启用前不影响任何既有行为。
 
-### 2.2 制导层（较早完成）
+### 2.2 制导层（较早完成，P4 完成标定）
 
 `core/guidance/MinimumSnapTrajectory.*` —— 七阶分段多项式最小快照轨迹生成，
 39 项断言通过。设计与验证记录见 `docs/guidance-minimum-snap.md`。
 
-该模块的已知空缺：**速度上限与 jerk 上限仍是保守估值（5.0 m/s、20.0 m/s³）**，
-不是实测值。加速度上限 6.87 m/s² 有推导依据（`g·tan(max_tilt_deg)`）。
+P4 在仿真闭环中扫描 `(max_vel, max_acc, max_jerk)` 网格，标定出推荐上限：
+
+| 约束 | 推荐值 | 来源 |
+|---|---|---|
+| `max_vel` | 5.0 m/s | 标定上限 5.10 m/s 的工程取整 |
+| `max_acc` | 5.84 m/s² | `0.9 × g·tan(35°)` |
+| `max_jerk` | 30.0 m/s³ | 标定可达 127 m/s³，但受电机/结构响应限制 |
+
+水平返航（20 m）是速度瓶颈：超过 6 m/s 后倾角突破 30° 安全边界；垂直方向未触顶。
+详见 `docs/guidance-minimum-snap.md` §十。
 
 ### 2.3 非理想位置量测下的降级验证（2026-10-01 完成，P1）
 
@@ -149,10 +157,13 @@ P3 把 `MinimumSnapTrajectory` 接入降级通路：
 自动触发对应轨迹生成；Mission 模式与 `FixedSetpointSource` 逐位等价，不引入回归。
 验证见 `GuidanceIntegrationTest`（17/17）与 `docs/guidance-minimum-snap.md` §八。
 
-### P4：速度与 jerk 上限标定
+### ~~P4：速度与 jerk 上限标定~~（已完成，见 §2.2）
 
-见 §2.2。实验设计需覆盖：稳态平飞下「还能稳定」的判据定义、jerk 与姿态环
-带宽（9 rad/s）的关系形式化、以及测量不确定度估计。
+结论：`TrajectoryLimitCalibrationTest` 在仿真闭环中扫描 `(max_vel, max_acc, max_jerk)`
+网格，覆盖 20 m 水平返航与 5 m 垂直下降两个场景，以「到达 ±0.5 m + 最大倾角 ≤ 30°
++ 不超时」为通过标准，标定出推荐上限 `max_vel=5.0 m/s`、`max_acc=5.84 m/s²`、
+`max_jerk=30.0 m/s³`，并已同步到 `MinimumSnapTrajectory.h` 的 `TrajectoryLimits` 默认值。
+验证见 `TrajectoryLimitCalibrationTest`（4/4）与 `docs/guidance-minimum-snap.md` §十。
 
 ## 四、硬约束（务必遵守）
 
@@ -186,7 +197,7 @@ P3 把 `MinimumSnapTrajectory` 接入降级通路：
 
 ## 五、工作方式
 
-- 提交前跑全量回归：当前基线为仓库 54 个测试可执行文件中 **53 个通过**；
+- 提交前跑全量回归：当前基线为仓库 55 个测试可执行文件中 **54 个通过**；
   唯一失败 `WindTunnelTest`（12 m/s 稳态偏移断言）是既有问题，与容错工作无关。
 - 数值结论需附测量环境；小效应量（<5%）在背景负载下不可信。
 - 报告与经验沉淀写入 `~/skills/reports/YYYY-MM-DD/`。
@@ -197,7 +208,7 @@ P3 把 `MinimumSnapTrajectory` 接入降级通路：
 | 问题 | 影响 | 状态 |
 |---|---|---|
 | 位置量测理想化 | P1 验证结论可能不适用于真机 | **已验证**（§2.3），附两条包络边界 |
-| 速度/jerk 上限为估值 | 轨迹可行域判断不可靠 | 待标定 |
+| ~~速度/jerk 上限为估值~~ | ~~轨迹可行域判断不可靠~~ | **已完成**（P4，见 §2.2） |
 | ~~降级无轨迹执行~~ | ~~返航/紧急降落只有动作码~~ | **已完成**（P3，见 §2.5） |
 | 大机动下偏置检测不可靠 | 机动污染残差基线两个量级 | 物理限制，已标注 |
 | 噪声量测下偏置漏检 | 默认机动门限被陀螺抖动掩蔽（§2.3） | 已量化，取保守侧 |

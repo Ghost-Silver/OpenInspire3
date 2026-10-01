@@ -130,7 +130,9 @@ void StateEstimator::updateImu(const ImuSample &imu, double dt) {
         an += a * a;
     }
     an = std::sqrt(an);
-    if (an > 1e-6) {
+    // 加速度计方向校正。降级策略可在加速度计失效后关闭它 ——
+    // 失效数据会让这里把错误的姿态误差持续注入估计，比不校正更糟。
+    if (an > 1e-6 && _use_accel_correction) {
         const std::array<double, 3> f_meas = {imu.accel[0] / an, imu.accel[1] / an,
                                               imu.accel[2] / an};
 
@@ -191,7 +193,7 @@ void StateEstimator::updateImu(const ImuSample &imu, double dt) {
     // 加速度计测的是比力，加回重力才得到惯性加速度：a_ned = R(q)·f_body + g_vec。
     // NED 系下 g_vec = [0, 0, +g]。这一步用上了高频 IMU 携带的运动信息，
     // 位置测量只需要做校正，不必再靠差分去「估」速度。
-    if (_has_pos) {
+    if (_has_pos && _trust_position) {
         const std::array<double, 3> a_ned = rotateBodyToNed(_quat, imu.accel);
         for (int i = 0; i < 3; ++i) {
             const auto idx = static_cast<std::size_t>(i);

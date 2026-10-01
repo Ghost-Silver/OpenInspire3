@@ -130,6 +130,9 @@ class ImuDegradePolicy {
             d.max_tilt_deg = 0.0; // 不再做姿态机动
             d.max_speed = 0.0;
             d.use_accel_correction = false;
+            // 紧急降落不再做位置控制（max_tilt=0、不再机动），故位置预积分
+            // 的取舍不影响结果；保持 false 以表明「不再依赖任何 IMU 派生的
+            // 位置信息」。与加速度计失效场景的处置不同，理由见该分支注释。
             d.trust_position = false;
             d.reason = "陀螺失效：姿态环失去反馈，立即就地降落";
             return d;
@@ -142,13 +145,19 @@ class ImuDegradePolicy {
             d.action = DegradeAction::ReturnHome;
             d.max_tilt_deg = _cfg.return_tilt_deg;
             d.max_speed = _cfg.return_speed;
-            // 关键：失效后继续用加速度计校正是有害的——
+            // 失效后继续用加速度计做方向校正是有害的 ——
             // 它会把错误方向当成姿态误差持续注入姿态估计。
+            // （注：对「输出恒零」型失效此项无实际影响，因为归一化后模长为零、
+            //   校正分支本就不执行；但对「偏置漂移」型失效它是必要的。）
             d.use_accel_correction = false;
-            // 位置预积分依赖加速度计，已不可信；
-            // 若仍有外部位置测量（GPS/光流），位置环仍可工作，由上层判断。
-            d.trust_position = false;
-            d.reason = "加速度计失效：姿态改由陀螺积分维持，位置精度下降，返航";
+            // **位置预积分必须保留**。这一点由闭环实测纠正：
+            // 初版把它设为 false（理由是「依赖加速度计故不可信」），结果飞机从
+            // 5.35 m 飘到 16.14 m、倾角 35°、水平偏 2.6 m —— 降级反而把飞机
+            // 搞坏了。根因是：预积分虽含偏差，却为位置环提供必要的高频信息，
+            // 而外部位置测量负责低频纠偏，这正是互补滤波的分工。关掉预积分
+            // 等于切断了高频通路，位置环失去阻尼而漂移。
+            d.trust_position = true;
+            d.reason = "加速度计失效：姿态改由陀螺积分维持并停止方向校正，位置预积分保留（靠外部量测纠偏），返航";
             return d;
         }
 

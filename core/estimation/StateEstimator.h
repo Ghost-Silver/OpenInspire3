@@ -174,6 +174,31 @@ public:
     /// 用给定四元数直接设定姿态（仅用于初始化对齐，不用于运行时）
     void setAttitude(const std::array<double, 4> &quat);
 
+    /**
+     * @brief 运行时开关：是否使用加速度计做姿态方向校正
+     *
+     * 供降级策略使用。加速度计失效后**必须关闭**：失效数据会让方向校正把
+     * 错误的姿态误差持续注入姿态估计，比不校正更糟。
+     *
+     * @note 关闭后姿态仅靠陀螺积分维持 —— 短期可用，但会随陀螺偏置缓慢漂移，
+     *       因此这是一个「争取时间」而非「长期可用」的状态。
+     */
+    void setAccelCorrectionEnabled(bool on) { _use_accel_correction = on; }
+
+    /// 当前是否启用加速度计方向校正
+    [[nodiscard]] bool accelCorrectionEnabled() const { return _use_accel_correction; }
+
+    /**
+     * @brief 运行时开关：是否使用加速度计做位置/速度预积分
+     *
+     * 供降级策略使用。加速度计失效后预积分不可信，须关闭；
+     * 此时位置只能靠外部位置测量（GPS/光流/视觉）校正。
+     */
+    void setTrustPosition(bool on) { _trust_position = on; }
+
+    /// 当前是否信任位置预积分
+    [[nodiscard]] bool trustPosition() const { return _trust_position; }
+
     /// 估计出的状态，供控制器使用
     [[nodiscard]] SixDofState state() const;
 
@@ -215,6 +240,10 @@ private:
 
     /// 传感器健康监测（默认关闭，见 EstimatorConfig::sensor_health）
     SensorHealth _health;
+
+    /// 运行时降级开关（默认为真，保证不改变既有行为）
+    bool _use_accel_correction = true;
+    bool _trust_position = true;
 };
 
 } // namespace oi3

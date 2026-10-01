@@ -134,6 +134,12 @@ add_executable(DegradeExecutorTest core/control/DegradeExecutorTest.cpp)
 target_compile_options(DegradeExecutorTest PRIVATE -Wall -Wextra)
 target_link_libraries(DegradeExecutorTest PRIVATE oi3_simulator)
 
+# 闭环对照：加速度计失效后「关闭校正 + 停止预积分」是否有用
+add_executable(AccelFaultClosedLoopTest core/control/AccelFaultClosedLoopTest.cpp)
+target_compile_options(AccelFaultClosedLoopTest PRIVATE -Wall -Wextra)
+target_link_libraries(AccelFaultClosedLoopTest PRIVATE oi3_simulator)
+
+
 
 
 # 轨迹跟踪能力实测：定点 PID 用于跟踪时的系统性滞后

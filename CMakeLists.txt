@@ -40,6 +40,7 @@ add_library(oi3_simulator STATIC
         core/control/MotorMixer.cpp
         core/control/SpinningController.cpp
         core/control/ClosedLoop.cpp
+        core/control/FlightControlLoop.cpp
         core/control/HoverEnv.cpp
         core/estimation/ImuModel.cpp
         core/estimation/StateEstimator.cpp
@@ -148,6 +149,11 @@ target_link_libraries(AccelBiasClosedLoopTest PRIVATE oi3_simulator)
 add_executable(PositionNonIdealClosedLoopTest core/control/PositionNonIdealClosedLoopTest.cpp)
 target_compile_options(PositionNonIdealClosedLoopTest PRIVATE -Wall -Wextra)
 target_link_libraries(PositionNonIdealClosedLoopTest PRIVATE oi3_simulator)
+
+# 飞控主循环集成验证：P2 产出
+add_executable(FlightControlLoopTest core/control/FlightControlLoopTest.cpp)
+target_compile_options(FlightControlLoopTest PRIVATE -Wall -Wextra)
+target_link_libraries(FlightControlLoopTest PRIVATE oi3_simulator)
 
 # 轨迹跟踪能力实测：定点 PID 用于跟踪时的系统性滞后
 # 可控旋转容错：三电机维持倾角与高度

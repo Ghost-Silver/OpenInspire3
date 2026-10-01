@@ -139,8 +139,10 @@ add_executable(AccelFaultClosedLoopTest core/control/AccelFaultClosedLoopTest.cp
 target_compile_options(AccelFaultClosedLoopTest PRIVATE -Wall -Wextra)
 target_link_libraries(AccelFaultClosedLoopTest PRIVATE oi3_simulator)
 
-
-
+# 闭环对照：加速度计偏置检测后，关闭错误方向反馈是否改善估计
+add_executable(AccelBiasClosedLoopTest core/control/AccelBiasClosedLoopTest.cpp)
+target_compile_options(AccelBiasClosedLoopTest PRIVATE -Wall -Wextra)
+target_link_libraries(AccelBiasClosedLoopTest PRIVATE oi3_simulator)
 
 # 轨迹跟踪能力实测：定点 PID 用于跟踪时的系统性滞后
 # 可控旋转容错：三电机维持倾角与高度

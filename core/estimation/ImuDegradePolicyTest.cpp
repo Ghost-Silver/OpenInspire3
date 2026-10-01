@@ -111,7 +111,8 @@ int main() {
         check(d.action == DegradeAction::Cautious, "加速度计降级 → Cautious");
         check(d.max_tilt_deg < 35.0, "降级：倾角上限被压低（抑制误差放大）");
         check(d.max_speed < 5.0, "降级：速度上限被压低");
-        check(d.use_accel_correction, "降级：仍使用校正（数据可用，只是有偏差）");
+        check(!d.use_accel_correction,
+              "加速度计降级：停止方向反馈（检测继续，但不把已确认偏置重新注入）");
 
         const auto d2 = policy.decide(makeReport(SensorStatus::Healthy, SensorStatus::Degraded));
         check(d2.action == DegradeAction::Cautious, "陀螺降级 → Cautious");

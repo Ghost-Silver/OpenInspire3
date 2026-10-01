@@ -130,48 +130,52 @@ void StateEstimator::updateImu(const ImuSample &imu, double dt) {
         an += a * a;
     }
     an = std::sqrt(an);
-    // 加速度计方向校正。降级策略可在加速度计失效后关闭它 ——
-    // 失效数据会让这里把错误的姿态误差持续注入估计，比不校正更糟。
-    if (an > 1e-6 && _use_accel_correction) {
+    // 只要加速度计有方向信息，就独立计算方向残差。这里刻意把「检测」与
+    // 「校正」拆开：降级策略可以关闭校正，但不能因此让健康监测也停止，
+    // 否则检测到 AccelBias 后，下一拍就失去继续监测的能力。
+    if (an > 1e-6) {
         const std::array<double, 3> f_meas = {imu.accel[0] / an, imu.accel[1] / an,
                                               imu.accel[2] / an};
 
         // 估计的比力方向：静止时加速度计读数为「支撑力」，即 NED 系下的 [0,0,-1]·g，
-        // 归一化后就是 [0,0,-1]（向上），旋转到机体得到 f_est
+        // 归一化后就是 [0,0,-1]（向上），旋转到机体得到 f_est。
         const std::array<double, 3> f_est = rotateNedToBody(_quat, {0.0, 0.0, -1.0});
 
-        // 误差：叉积给出修正旋转轴（f_meas × f_est）
+        // 误差：叉积给出修正旋转轴（f_meas × f_est）。
         const std::array<double, 3> e = {
             f_meas[1] * f_est[2] - f_meas[2] * f_est[1],
             f_meas[2] * f_est[0] - f_meas[0] * f_est[2],
             f_meas[0] * f_est[1] - f_meas[1] * f_est[0]};
 
-        // 修正角速度；同时把修正量的低通作为陀螺偏置估计 ——
-        // 稳态下这项恰好抵消偏置造成的漂移，因此它本身就是偏置的观测量。
-        //
-        // 符号必须取负：设真实偏置 b > 0（测得角速度偏大），姿态估计会超前真值，
-        // 记姿态误差为 δ，则叉积误差 e ≈ −δ。要让 bias_est 追向 +b，就必须让
-        // bias_est 沿 −e 的方向增长。写成 += 会让估计值朝真值的反方向走，
-        // 表现为「偏置估计不收敛且符号相反」—— 这个错误由 EstimatorTest 的分轴
-        // 断言捕获，不是靠读代码看出来的。
-        for (int i = 0; i < 3; ++i) {
-            const auto idx = static_cast<std::size_t>(i);
-            const double corr = _cfg.accel_correction * e[idx];
-            w[idx] += corr;
-            if (_cfg.estimate_gyro_bias) {
-                // 标准 Mahony 形式：ḃ = −Ki·e，用未经 Kp 缩放的原始误差。
-                // 若把 Kp·e 代进来，Ki 的有效值就变成 Ki·Kp，两个增益不再可独立
-                // 调节 —— 想靠降低 Kp 抑制机动污染时，偏置收敛会跟着一起变慢。
-                _gyro_bias[idx] -= _cfg.bias_correction * e[idx] * dt;
-            }
-        }
-
-        // 健康监测：叉积误差 e 的模长就是「测量比力方向 vs 姿态估计方向」的偏差，
-        // 是本模块最主要的检测量（能测出偏置，而模长判据不能）。
-        // 只有启用时才计算——未启用时这里完全不执行，既有结果逐位不变。
+        // 方向残差是健康检测的观测量，必须无条件更新（只受 enabled 控制），
+        // 与是否将它反馈进姿态积分完全独立。
         if (_cfg.sensor_health.enabled) {
             const double resid = std::sqrt(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
             _health.update(imu.accel, imu.gyro, resid);
+        }
+
+        // 加速度计方向校正。降级策略可关闭它——失效数据会让这里把错误的
+        // 姿态误差持续注入估计，比不校正更糟。关闭校正不影响上面的检测。
+        if (_use_accel_correction) {
+            // 修正角速度；同时把修正量的低通作为陀螺偏置估计 ——
+            // 稳态下这项恰好抵消偏置造成的漂移，因此它本身就是偏置的观测量。
+            //
+            // 符号必须取负：设真实偏置 b > 0（测得角速度偏大），姿态估计会超前真值，
+            // 记姿态误差为 δ，则叉积误差 e ≈ −δ。要让 bias_est 追向 +b，就必须让
+            // bias_est 沿 −e 的方向增长。写成 += 会让估计值朝真值的反方向走，
+            // 表现为「偏置估计不收敛且符号相反」—— 这个错误由 EstimatorTest 的分轴
+            // 断言捕获，不是靠读代码看出来的。
+            for (int i = 0; i < 3; ++i) {
+                const auto idx = static_cast<std::size_t>(i);
+                const double corr = _cfg.accel_correction * e[idx];
+                w[idx] += corr;
+                if (_cfg.estimate_gyro_bias) {
+                    // 标准 Mahony 形式：ḃ = −Ki·e，用未经 Kp 缩放的原始误差。
+                    // 若把 Kp·e 代进来，Ki 的有效值就变成 Ki·Kp，两个增益不再可独立
+                    // 调节——想靠降低 Kp 抑制机动污染时，偏置收敛会跟着一起变慢。
+                    _gyro_bias[idx] -= _cfg.bias_correction * e[idx] * dt;
+                }
+            }
         }
     }
 

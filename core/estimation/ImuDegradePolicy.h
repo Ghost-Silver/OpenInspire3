@@ -167,7 +167,11 @@ class ImuDegradePolicy {
             d.action = DegradeAction::Cautious;
             d.max_tilt_deg = _cfg.cautious_tilt_deg;
             d.max_speed = _cfg.cautious_speed;
-            d.reason = "传感器存在系统性偏差，限幅飞行以抑制误差放大";
+            // Degraded 不是「数据仍然适合反馈」：它表示数据带有已确认的
+            // 系统性偏差。继续把加速度计方向误差反馈进姿态估计，会把已检测到
+            // 的偏置重新注入控制状态。检测仍继续运行，但反馈校正必须关闭。
+            d.use_accel_correction = (h.accel != SensorStatus::Degraded);
+            d.reason = "传感器存在系统性偏差，停止错误方向反馈并限幅飞行";
             return d;
         }
 

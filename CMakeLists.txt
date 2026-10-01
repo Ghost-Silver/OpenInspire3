@@ -144,6 +144,11 @@ add_executable(AccelBiasClosedLoopTest core/control/AccelBiasClosedLoopTest.cpp)
 target_compile_options(AccelBiasClosedLoopTest PRIVATE -Wall -Wextra)
 target_link_libraries(AccelBiasClosedLoopTest PRIVATE oi3_simulator)
 
+# 闭环消融：位置量测带噪声+延迟时，降级策略（含 trust_position 取舍）是否仍不劣化
+add_executable(PositionNonIdealClosedLoopTest core/control/PositionNonIdealClosedLoopTest.cpp)
+target_compile_options(PositionNonIdealClosedLoopTest PRIVATE -Wall -Wextra)
+target_link_libraries(PositionNonIdealClosedLoopTest PRIVATE oi3_simulator)
+
 # 轨迹跟踪能力实测：定点 PID 用于跟踪时的系统性滞后
 # 可控旋转容错：三电机维持倾角与高度
 add_executable(SpinningRecoveryTest core/control/SpinningRecoveryTest.cpp)

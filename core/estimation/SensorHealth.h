@@ -34,6 +34,21 @@
  *   但**机动时残差基线抬升两个量级**（0.0041 → 0.323），因为加速度计读的是比力
  *   而非重力，机动加速度被当成了姿态误差。固定阈值在机动时会全面误报。
  *
+ * @par 统计量的机动门控，以及为什么确认计数要「暂停」而非「清零」
+ *
+ * 由上一条实测推出两条实现约束：
+ *
+ * - **残差统计量（滑窗与 CUSUM）只喂非机动帧**。机动帧的残差是运动不是故障，
+ *   喂进累积检验等于注入垃圾样本；而 CUSUM 报警一经触发不会自动解除，
+ *   一次机动就能换来永久误报。
+ * - **机动帧不清空偏置确认计数**。机动时残差既不能归因偏置、也不能作为
+ *   「健康」的证据。若按「非异常即清零」处理，一帧机动就会清空已累计的确认
+ *   计数；位置量测噪声较强时陀螺抖动会频繁越限，状态将在 Healthy/Degraded
+ *   间高频翻动，偏置判定永远无法稳定保持（PositionNonIdealClosedLoopTest
+ *   实测：检出后状态翻回，方向反馈时开时关，姿态误差只能收敛一半）。
+ *   故机动帧暂停计数，偏置的解除改由显式恢复路径负责（见
+ *   recovery_residual / recovery_steps）。
+ *
  * @par 一个必须诚实说明的物理限制
  *
  * **陀螺彻底归零在静止时不可观测**。静止时真值角速度本就是零，归零前后数据完全
@@ -135,6 +150,18 @@ struct SensorHealthConfig {
 
     /// 进入 Degraded 所需的持续步数（去抖，避免单帧野点误判）
     int confirm_steps = 100;
+
+    /**
+     * @brief 恢复判据：视为「偏置可能已消失」的方向残差上限
+     *
+     * 实测健康静止稳态残差约 0.004，偏置故障残差 ≥ 0.10，
+     * 取 0.02（5 倍噪声底）：高于健康稳态、远低于故障水平。
+     */
+    double recovery_residual = 0.02;
+
+    /// 确认恢复所需的连续非机动低残差步数（去抖）。取 500 步（0.5 s）：
+    /// 足以避免单个侥幸低点触发解除，又远短于偏置漂移再现的时间尺度。
+    int recovery_steps = 500;
 };
 
 /// 健康报告
@@ -189,6 +216,7 @@ class SensorHealth {
         _gyro_frozen_count = 0;
         _accel_bad_count = 0;
         _accel_fault_latched = ImuFault::None;
+        _recovery_count = 0;
         _gyro_bad_count = 0;
         _prev_accel = {};
         _prev_gyro = {};
@@ -240,12 +268,24 @@ class SensorHealth {
         _have_prev = true;
 
         // ---- 3. 残差统计：检测「说谎」 ----
-        _resid_monitor.update(residual);
-        _resid_cusum.update(residual);
-
-        // 机动判定：用陀螺角速度模长，独立于残差（见配置注释）
+        // 机动判定先行：用陀螺角速度模长，独立于残差（见配置注释）
         const double gm = std::sqrt(gyro[0] * gyro[0] + gyro[1] * gyro[1] + gyro[2] * gyro[2]);
         _report.maneuvering = (gm > _cfg.maneuver_gyro);
+
+        // 残差统计量只喂非机动帧（见文件头「统计量的机动门控」）：机动帧的残差
+        // 是运动不是故障，喂进累积检验等于注入垃圾样本，而 CUSUM 报警锁存不解除，
+        // 一次机动就会换来永久误报。恢复证据同样只在非机动帧累计。
+        if (!_report.maneuvering) {
+            _resid_monitor.update(residual);
+            _resid_cusum.update(residual);
+            if (residual < _cfg.recovery_residual) {
+                ++_recovery_count;
+            } else {
+                _recovery_count = 0;
+            }
+        } else {
+            _recovery_count = 0;
+        }
 
         // ---- 4. 综合判定 ----
         // 加速度计
@@ -274,9 +314,31 @@ class SensorHealth {
                 _accel_fault_latched = accel_fault;
             }
             ++_accel_bad_count;
+        } else if (_report.maneuvering) {
+            // 机动帧：残差不可归因，既不算故障证据、也不算健康证据。
+            // 保持计数不动（暂停而非清零）——否则一帧机动就清空已累计的确认计数，
+            // 状态会在 Healthy/Degraded 间高频翻动，见文件头「统计量的机动门控」。
         } else {
             _accel_bad_count = 0;
             _accel_fault_latched = ImuFault::None;
+        }
+
+        // ---- 4b. 偏置恢复路径 ----
+        // 偏置是软故障：传感器真正恢复后必须有显式出口，否则一次偏置会把状态
+        // 永久锁在 Degraded（CUSUM 报警锁存、且机动帧不再清零计数）。
+        // 条件：非机动帧残差连续 recovery_steps 步低于 recovery_residual。
+        // 只解除偏置类 Degraded；掉线/卡死等硬故障走「判据消失 → 计数清零」
+        // 自己的恢复语义，不经过这里。
+        if (_recovery_count >= _cfg.recovery_steps) {
+            _resid_cusum.reset();
+            _recovery_count = 0;
+            if (_report.accel == SensorStatus::Degraded &&
+                _report.fault == ImuFault::AccelBias) {
+                _accel_bad_count = 0;
+                _accel_fault_latched = ImuFault::None;
+                _report.accel = SensorStatus::Healthy;
+                _report.fault = ImuFault::None;
+            }
         }
 
         // 陀螺
@@ -305,7 +367,9 @@ class SensorHealth {
                 }
             } else {
                 _report.accel = SensorStatus::Failed;
-                _report.fault = accel_fault;
+                // 用锁存类型而非瞬时值：计数可跨机动帧保持，达标后的帧
+                // 可能是不可归因的机动帧（瞬时类型为 None）。
+                _report.fault = _accel_fault_latched;
             }
         } else if (_report.accel != SensorStatus::Failed) {
             _report.accel = SensorStatus::Healthy;
@@ -371,6 +435,7 @@ class SensorHealth {
     int _gyro_frozen_count = 0;
     int _accel_bad_count = 0;
     ImuFault _accel_fault_latched = ImuFault::None;
+    int _recovery_count = 0;
     int _gyro_bad_count = 0;
     SensorHealthReport _report{};
     long long _samples = 0;

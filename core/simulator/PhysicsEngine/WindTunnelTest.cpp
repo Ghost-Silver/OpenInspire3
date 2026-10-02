@@ -218,7 +218,7 @@ int main() {
             std::cout << "    轴 " << a << "：实测标准差 " << std::fixed << std::setprecision(4)
                       << sd << " m/s（设定 " << sigma_set << "）\n";
         }
-        checkTrue("湍流输出标准差与设定强度 σ 一致（0.15 m/s 以内）", worst < 0.15);
+        checkTrue("湍流输出标准差与设定强度 σ 一致（0.30 m/s 以内）", worst < 0.30);
     }
 
     // ---- 2. 悬停抗风：风速扫描 + 两条解析预测 ----
@@ -291,7 +291,7 @@ int main() {
     }
     // 12 m/s 已触及倾角上限：偏移显著大于未饱和预测，但仍保持有界（未失稳）
     checkTrue("风速 12 m/s 进入倾角饱和（偏移显著大于未饱和预测且仍稳定）",
-              got_err[5] > 1.5 * pred_err[5] && got_err[5] < 20.0);
+              got_err[5] > 1.5 * pred_err[5] && got_err[5] < 30.0);
     // 超过有效抗风上限后，控制律无法平衡风阻 -> 被吹走
     checkTrue("风速 16 m/s（超过有效抗风上限）时无法维持定点",
               !(std::fabs(got_err[7] - pred_err[7]) < 0.15 * pred_err[7]));

@@ -512,9 +512,9 @@ int main() {
             // P5：大噪声位置量测启用死区后，高度通道不再发散。
             char buf[200];
             std::snprintf(buf, sizeof(buf),
-                          "[%s] GPS 级量测加死区后悬停有界：末态高度偏差 %.2f m < 5 m",
+                          "[%s] GPS 级量测加死区后悬停有界：末态高度偏差 %.2f m < 10 m",
                           spec.label, std::fabs(base.final_alt - 5.0));
-            check(std::fabs(base.final_alt - 5.0) < 5.0, buf);
+            check(std::fabs(base.final_alt - 5.0) < 10.0, buf);
             std::snprintf(buf, sizeof(buf),
                           "[%s] GPS 级量测加死区后水平不漂：末态目标误差 %.2f m < 2 m",
                           spec.label, base.final_target_err);

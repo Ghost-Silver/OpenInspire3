@@ -460,3 +460,7 @@ add_test(NAME TrajectoryLimitCalibrationTest COMMAND TrajectoryLimitCalibrationT
 add_test(NAME ParameterIdTest COMMAND ParameterIdTest)
 add_test(NAME ModelCalibrationTest COMMAND ModelCalibrationTest)
 add_test(NAME SixDofGradTest COMMAND SixDofGradTest)
+add_executable(HybridControlTest tests/test_hybrid_controller.cpp)
+target_compile_options(HybridControlTest PRIVATE -Wall -Wextra)
+target_link_libraries(HybridControlTest PRIVATE oi3_simulator)
+add_test(NAME HybridControlTest COMMAND HybridControlTest)

@@ -104,6 +104,14 @@ void StateEstimator::reset(const std::array<double, 4> &initial_quat) {
     // 健康监测随估计器一同复位：换场地或重启后应重新积累统计，
     // 否则上一段数据的故障判定会残留到新数据上。
     _health.reset();
+
+    // 卡尔曼协方差复位。若沿用上一次运行的收敛协方差，重启后滤波器会
+    // 过度自信，对最初几帧量测几乎不做修正 —— 故在此清零，由首次量测重建。
+    for (auto &cov : _pos_cov) {
+        cov = AxisCovariance{};
+    }
+    _k_pos = {0.0, 0.0, 0.0};
+    _k_vel = {0.0, 0.0, 0.0};
 }
 
 void StateEstimator::setAttitude(const std::array<double, 4> &quat) {
@@ -205,6 +213,33 @@ void StateEstimator::updateImu(const ImuSample &imu, double dt) {
             _pos[idx] += _vel[idx] * dt + 0.5 * a * dt * dt;
             _vel[idx] += a * dt;
         }
+
+        // 卡尔曼协方差预测：P ← F·P·Fᵀ + Q，其中 F = [[1, dt], [0, 1]]。
+        // 展开后（利用 P 对称，只需维护三个独立分量）：
+        //   p_pp ← p_pp + 2·dt·p_pv + dt²·p_vv + Q_pp
+        //   p_pv ← p_pv + dt·p_vv             + Q_pv
+        //   p_vv ← p_vv                        + Q_vv
+        // 过程噪声 Q 由 IMU 加速度不确定度 q 驱动（连续白噪声加速度模型）：
+        //   Q_pp = q²·dt⁴/4，Q_pv = q²·dt³/2，Q_vv = q²·dt²
+        // 即「加速度噪声经两次积分进入位置」。q 取配置值与量测噪声的相对关系
+        // 决定了滤波器更信任模型还是更信任量测。
+        if (_cfg.pos_filter == PosFilterKind::Kalman) {
+            const double q = _cfg.kalman_accel_noise;
+            const double dt2 = dt * dt;
+            const double dt3 = dt2 * dt;
+            const double dt4 = dt2 * dt2;
+            const double q_pp = q * q * dt4 * 0.25;
+            const double q_pv = q * q * dt3 * 0.5;
+            const double q_vv = q * q * dt2;
+            for (auto &cov : _pos_cov) {
+                const double pp = cov.p_pp;
+                const double pv = cov.p_pv;
+                const double vv = cov.p_vv;
+                cov.p_pp = pp + 2.0 * dt * pv + dt2 * vv + q_pp;
+                cov.p_pv = pv + dt * vv + q_pv;
+                cov.p_vv = vv + q_vv;
+            }
+        }
     }
 }
 
@@ -213,9 +248,61 @@ void StateEstimator::updatePosition(const std::array<double, 3> &pos_meas, doubl
         _pos = pos_meas;
         _vel = {0.0, 0.0, 0.0};
         _has_pos = true;
+
+        // 卡尔曼初值：位置不确定度取量测噪声量级（首帧量测的可信度即如此），
+        // 速度不确定度取 1 m/s（悬停启动时速度未知，但不至于完全无界）。
+        // 不建这个初值而让协方差保持为零，滤波器会「过度自信」——
+        // 新息几乎不产生修正，估计器将长期滞后于真实状态。
+        if (_cfg.pos_filter == PosFilterKind::Kalman) {
+            const double R = _cfg.kalman_pos_noise * _cfg.kalman_pos_noise;
+            for (auto &cov : _pos_cov) {
+                cov.p_pp = R;
+                cov.p_pv = 0.0;
+                cov.p_vv = 1.0;
+            }
+        }
         return;
     }
     if (dt <= 1e-9) {
+        return;
+    }
+
+    // ---- 卡尔曼分支（可选升级路径）----
+    // 标准 2×2 卡尔曼更新：状态 [p, v]，量测 p。
+    //   新息    y = z − p
+    //   新息方差 S = p_pp + R
+    //   增益    K = [p_pp/S, p_pv/S]ᵀ
+    //   协方差  P ← (I − K·H)·P
+    // 与 α-β 的关键区别：增益不是常数，而由协方差与量测噪声 R 实时算出。
+    // 量测噪声增大时 S 增大、增益自动下降，无需为不同传感器重新标定增益，
+    // 也不需要死区补丁 —— 这正是升级的动机。
+    if (_cfg.pos_filter == PosFilterKind::Kalman) {
+        const double R = _cfg.kalman_pos_noise * _cfg.kalman_pos_noise;
+        for (int i = 0; i < 3; ++i) {
+            const auto idx = static_cast<std::size_t>(i);
+            auto &cov = _pos_cov[idx];
+            const double S = cov.p_pp + R;
+            // S 理论上恒为正（p_pp ≥ 0、R > 0）；此处仍做保护，
+            // 避免 R 被配置为 0 时出现除零。
+            if (S <= 1e-15) {
+                continue;
+            }
+            const double k_p = cov.p_pp / S;
+            const double k_v = cov.p_pv / S;
+            const double y = pos_meas[idx] - _pos[idx];
+            _pos[idx] += k_p * y;
+            _vel[idx] += k_v * y;
+
+            const double pp = cov.p_pp;
+            const double pv = cov.p_pv;
+            const double vv = cov.p_vv;
+            cov.p_pp = (1.0 - k_p) * pp;
+            cov.p_pv = (1.0 - k_p) * pv;
+            cov.p_vv = vv - k_v * pv;
+
+            _k_pos[idx] = k_p;
+            _k_vel[idx] = k_v;
+        }
         return;
     }
 

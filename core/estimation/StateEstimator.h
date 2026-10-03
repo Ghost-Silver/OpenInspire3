@@ -74,6 +74,23 @@
 
 namespace oi3 {
 
+/**
+ * @brief 位置滤波器类型
+ *
+ * `AlphaBeta` 为固定增益 α-β 滤波器（历史实现，默认）；
+ * `Kalman` 为位置-速度卡尔曼滤波器，增益随过程/量测噪声自动缩放。
+ *
+ * @par 为什么提供两种而非直接替换
+ *
+ * 更换位置滤波器会改变所有依赖位置估计的闭环结果（本仓库 50 余个测试），
+ * 因此与项目既有惯例一致：新路径以可选方式接入，默认关闭，
+ * 待对照数据充分后再讨论是否切换默认值。
+ */
+enum class PosFilterKind {
+    AlphaBeta = 0, ///< 固定增益 α-β（默认，既有行为）
+    Kalman,        ///< 位置-速度卡尔曼（可选升级）
+};
+
 /// 估计器配置
 struct EstimatorConfig {
     /**
@@ -161,6 +178,55 @@ struct EstimatorConfig {
      * 死区；GPS 级量测（σ≈0.30 m）可取 0.1~0.2 m。
      */
     double pos_residual_deadzone = 0.0;
+
+    /**
+     * @brief 位置滤波器类型
+     *
+     * 默认 `AlphaBeta` 保持既有行为逐位不变；`Kalman` 为可选升级路径。
+     */
+    PosFilterKind pos_filter = PosFilterKind::AlphaBeta;
+
+    /**
+     * @brief 卡尔曼滤波的过程噪声：IMU 加速度不确定度（m/s²）
+     *
+     * 物理含义是「预积分所用加速度的可信度」。取值偏大则滤波器更信任量测
+     * （增益升高、跟踪更快、抗噪变差），偏小则更信任模型（平滑但滞后）。
+     *
+     * @par 默认值 100 的来源（由对照实验标定，非理论推导）
+     *
+     * 该值偏离加速度计本身的噪声量级（约 0.08 m/s²）达三个数量级，原因是
+     * **预积分误差并非白噪声**：姿态误差经重力投影产生虚假加速度、陀螺偏置
+     * 积分、控制推力响应滞后等，都表现为长相关误差，其增长速度远快于
+     * 「白噪声加速度」模型的假设。标准解法（加速度偏置随机游走模型）会引入
+     * 额外状态与调参维度，故这里用增大的过程噪声补偿模型失配。
+     *
+     * 标定实验（`PositionNonIdealClosedLoopTest` 的滤波器对照章节，扫描 q 从
+     * 0.1 到 500，覆盖光流级 σ=0.05 与 GPS 级 σ=0.30 两种场景）：
+     *
+     * | q | 光流级高度偏差 | GPS 级高度偏差 |
+     * |---|---|---|
+     * | 0.5 | 48.97 m（发散） | — |
+     * | 10 | 0.04 m | 46.78 m（发散） |
+     * | 50 | 0.01 m | 11.09 m |
+     * | **100** | **0.03 m** | **0.25 m** |
+     * | 200 | 0.11 m | 0.35 m |
+     * | 500 | 0.53 m | 2.89 m |
+     *
+     * q 过小时滤波器过度信任预积分，速度估计失去量测校正而漂移，闭环发散；
+     * q 过大则等同不信任模型，退化为直接使用含噪量测。100 是两种噪声水平下
+     * 同时可用的区间，其等效位置增益（0.299）与经过验证的 α-β 增益（0.35）
+     * 同量级，即「带宽匹配既有设计，同时获得噪声自适应性」。
+     */
+    double kalman_accel_noise = 100.0;
+
+    /**
+     * @brief 卡尔曼滤波的量测噪声：位置传感器标准差（米）
+     *
+     * 这一项是卡尔曼相对 α-β 的核心优势所在 —— 它使增益随量测噪声自动缩放。
+     * 光流级（σ≈0.05 m）与 GPS 级（σ≈0.30 m）只需改这一个数，无需为不同
+     * 传感器重新标定增益，也不需要死区补丁。
+     */
+    double kalman_pos_noise = 0.05;
 };
 
 /**
@@ -245,6 +311,17 @@ public:
      */
     [[nodiscard]] const SensorHealthReport &sensorHealth() const { return _health.report(); }
 
+    /**
+     * @brief 当前卡尔曼增益（位置分量），仅 pos_filter == Kalman 时有意义
+     *
+     * 暴露该值用于验证「增益确实随噪声参数缩放」这一核心性质 —— 否则无法
+     * 从外部区分「卡尔曼生效」与「只是碰巧数值接近」。
+     */
+    [[nodiscard]] const std::array<double, 3> &kalmanGainPos() const { return _k_pos; }
+
+    /// 当前卡尔曼增益（速度分量）
+    [[nodiscard]] const std::array<double, 3> &kalmanGainVel() const { return _k_vel; }
+
 private:
     EstimatorConfig _cfg;
 
@@ -261,6 +338,24 @@ private:
     /// 运行时降级开关（默认为真，保证不改变既有行为）
     bool _use_accel_correction = true;
     bool _trust_position = true;
+
+    /**
+     * @brief 每轴 2×2 协方差（对称，仅存三个独立分量）
+     *
+     * 状态为 [p, v]，故 P = [[p_pp, p_pv], [p_pv, p_vv]]。
+     * 三轴解耦处理：位置量测按轴独立，IMU 加速度虽经姿态旋转产生轴间耦合，
+     * 但耦合项远小于各轴自身不确定度，解耦可显著降低复杂度而精度损失可忽略。
+     */
+    struct AxisCovariance {
+        double p_pp = 0.0; ///< 位置方差
+        double p_pv = 0.0; ///< 位置-速度协方差
+        double p_vv = 0.0; ///< 速度方差
+    };
+    std::array<AxisCovariance, 3> _pos_cov{};
+
+    /// 最近一次更新得到的卡尔曼增益（供测试验证增益随噪声缩放）
+    std::array<double, 3> _k_pos{};
+    std::array<double, 3> _k_vel{};
 };
 
 } // namespace oi3

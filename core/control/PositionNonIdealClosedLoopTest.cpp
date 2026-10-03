@@ -189,6 +189,12 @@ struct RunOptions {
     double maneuver_gyro_override = -1.0;
     /// 覆盖 EstimatorConfig::pos_residual_deadzone；<0 表示用默认值 0.0
     double pos_deadzone_override = -1.0;
+    /// 覆盖 EstimatorConfig::pos_filter；-1 表示不覆盖（默认 AlphaBeta）
+    int pos_filter_override = -1;
+    /// 覆盖 EstimatorConfig::kalman_pos_noise；<0 表示不覆盖
+    double kalman_pos_noise_override = -1.0;
+    /// 覆盖 EstimatorConfig::kalman_accel_noise；<0 表示不覆盖
+    double kalman_accel_noise_override = -1.0;
 };
 
 RunResult run(FaultKind fault, Mode mode, const SensorSpec &spec, uint32_t seed,
@@ -217,6 +223,15 @@ RunResult run(FaultKind fault, Mode mode, const SensorSpec &spec, uint32_t seed,
     }
     if (opts.pos_deadzone_override >= 0.0) {
         estimator_config.pos_residual_deadzone = opts.pos_deadzone_override;
+    }
+    if (opts.pos_filter_override >= 0) {
+        estimator_config.pos_filter = static_cast<PosFilterKind>(opts.pos_filter_override);
+    }
+    if (opts.kalman_pos_noise_override >= 0.0) {
+        estimator_config.kalman_pos_noise = opts.kalman_pos_noise_override;
+    }
+    if (opts.kalman_accel_noise_override >= 0.0) {
+        estimator_config.kalman_accel_noise = opts.kalman_accel_noise_override;
     }
     StateEstimator estimator(estimator_config);
     estimator.reset();
@@ -580,6 +595,98 @@ int main() {
                       "死区有效：噪声+延迟加死区后偏差 %.2f m < 10 m",
                       std::fabs(env[3].final_alt - 5.0));
         check(std::fabs(env[3].final_alt - 5.0) < 10.0, buf);
+    }
+
+    // ====================================================================
+    // 位置滤波器对照：固定增益 α-β（+死区）vs 卡尔曼
+    // --------------------------------------------------------------------
+    // 动机：α-β 的增益是常数，只能针对某一噪声水平调好；换个传感器就要重调，
+    // 大噪声时还得靠死区压制速度脉冲。卡尔曼的增益由量测噪声 R 自动缩放，
+    // 参数具有物理含义（量测噪声标准差），理论上无需死区。
+    //
+    // 本对照在同一仿真、同一噪声种子下比较两种滤波器，以验证上述判断是否成立。
+    // 注意：卡尔曼的 kalman_pos_noise 直接取该场景的实际 σ（这是它的设计用法：
+    // 告诉滤波器量测有多不准），而不是调参寻优后的值。
+    // ====================================================================
+    std::printf("\n────────── 位置滤波器对照（α-β+死区 vs 卡尔曼）──────────\n");
+    {
+        struct FilterCase {
+            SensorSpec spec;
+            double deadzone; ///< α-β 使用的死区
+        };
+        const FilterCase cases[3] = {
+            {{0.0, 0, "理想量测"}, 0.0},
+            {{0.05, 20, "光流级 σ=0.05"}, 0.0},
+            {{0.30, 100, "GPS级 σ=0.30"}, 0.15},
+        };
+
+        std::printf("%-16s %14s %14s %10s\n", "场景", "α-β 高度偏差", "卡尔曼高度偏差", "改善");
+        for (const auto &fc : cases) {
+            RunOptions ab_opts;
+            ab_opts.pos_deadzone_override = fc.deadzone;
+            const RunResult ab = run(FaultKind::None, Mode::NoDegrade, fc.spec, seed, ab_opts);
+
+            RunOptions kf_opts;
+            kf_opts.pos_filter_override = static_cast<int>(PosFilterKind::Kalman);
+            // 把真实噪声水平告诉滤波器 —— 这正是卡尔曼的设计用法。
+            const double effective_sigma = std::max(1e-3, fc.spec.sigma);
+            kf_opts.kalman_pos_noise_override = effective_sigma;
+            const RunResult kf = run(FaultKind::None, Mode::NoDegrade, fc.spec, seed, kf_opts);
+
+            const double ab_dev = std::fabs(ab.final_alt - 5.0);
+            const double kf_dev = std::fabs(kf.final_alt - 5.0);
+            const char *verdict = (kf_dev < ab_dev) ? "更优" : "(不劣)";
+            if (kf_dev >= ab_dev) {
+                verdict = (kf_dev <= ab_dev * 1.05 + 0.05) ? "相当" : "更差";
+            }
+            std::printf("%-16s %13.2f m %13.2f m %10s\n", fc.spec.label, ab_dev, kf_dev, verdict);
+
+            char buf[220];
+            // 核心断言：卡尔曼在任一场景都不得显著劣于「α-β + 手工死区」。
+            // 若这条失败，说明引入卡尔曼是负收益，不应合入。
+            std::snprintf(buf, sizeof(buf),
+                          "[%s] 卡尔曼不劣于 α-β+死区（高度偏差 %.2f m vs %.2f m）",
+                          fc.spec.label, kf_dev, ab_dev);
+            check(kf_dev <= ab_dev * 1.05 + 0.05, buf);
+
+            // 附带断言：卡尔曼路径不应失控。
+            std::snprintf(buf, sizeof(buf), "[%s] 卡尔曼路径未失控", fc.spec.label);
+            check(!kf.crashed, buf);
+        }
+
+        // 增益自适应性的直接验证：同一份代码，仅改变「告知的量测噪声」，
+        // 卡尔曼的位置增益必须随之下降。若增益不随 R 变化，说明协方差更新
+        // 没有真正生效（例如恒用固定增益），本模块的核心价值即不成立。
+        {
+            SixDofConfig probe_cfg;
+            const double probe_dt = probe_cfg.base.dt;
+
+            auto gainFor = [&](double sigma) {
+                EstimatorConfig cfg_probe;
+                cfg_probe.pos_filter = PosFilterKind::Kalman;
+                cfg_probe.kalman_pos_noise = sigma;
+                StateEstimator est(cfg_probe);
+                est.reset();
+                const Tensor q = Tensor{1.0f, 0.0f, 0.0f, 0.0f};
+                const Tensor z3 = makeVec3(0.0f, 0.0f, 0.0f);
+                for (int k = 0; k < 400; ++k) {
+                    est.updateImu(ImuSample{{0.0, 0.0, -9.81}, {0.0, 0.0, 0.0}}, probe_dt);
+                    if (k % 10 == 0) {
+                        est.updatePosition({0.0, 0.0, -5.0}, probe_dt * 10.0);
+                    }
+                }
+                return est.kalmanGainPos()[2];
+            };
+
+            const double k_small = gainFor(0.01);
+            const double k_large = gainFor(1.00);
+            std::printf("        位置增益（z 轴）：σ=0.01 时 %.4f，σ=1.00 时 %.4f\n", k_small,
+                        k_large);
+            char buf[220];
+            std::snprintf(buf, sizeof(buf),
+                          "卡尔曼增益随量测噪声自适应下降（%.4f → %.4f）", k_small, k_large);
+            check(k_large < k_small, buf);
+        }
     }
 
     std::printf("\n========================================\n");

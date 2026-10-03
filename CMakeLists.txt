@@ -447,3 +447,8 @@ target_include_directories(MinimumSnapTest PRIVATE
 target_compile_options(MinimumSnapTest PRIVATE -Wall -Wextra)
 target_link_libraries(MinimumSnapTest PRIVATE oi3_simulator)
 add_test(NAME minimum_snap COMMAND MinimumSnapTest)
+
+# 组合验证：卡尔曼位置滤波器 × IMU 故障降级
+add_executable(KalmanFaultCombinationTest core/estimation/KalmanFaultCombinationTest.cpp)
+target_compile_options(KalmanFaultCombinationTest PRIVATE -Wall -Wextra)
+target_link_libraries(KalmanFaultCombinationTest PRIVATE oi3_simulator)

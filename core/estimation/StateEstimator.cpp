@@ -223,22 +223,34 @@ void StateEstimator::updateImu(const ImuSample &imu, double dt) {
         //   Q_pp = q²·dt⁴/4，Q_pv = q²·dt³/2，Q_vv = q²·dt²
         // 即「加速度噪声经两次积分进入位置」。q 取配置值与量测噪声的相对关系
         // 决定了滤波器更信任模型还是更信任量测。
-        if (_cfg.pos_filter == PosFilterKind::Kalman) {
-            const double q = _cfg.kalman_accel_noise;
-            const double dt2 = dt * dt;
-            const double dt3 = dt2 * dt;
-            const double dt4 = dt2 * dt2;
-            const double q_pp = q * q * dt4 * 0.25;
-            const double q_pv = q * q * dt3 * 0.5;
-            const double q_vv = q * q * dt2;
-            for (auto &cov : _pos_cov) {
-                const double pp = cov.p_pp;
-                const double pv = cov.p_pv;
-                const double vv = cov.p_vv;
-                cov.p_pp = pp + 2.0 * dt * pv + dt2 * vv + q_pp;
-                cov.p_pv = pv + dt * vv + q_pv;
-                cov.p_vv = vv + q_vv;
-            }
+    }
+
+    // 卡尔曼协方差预测。**必须独立于 trust_position 执行。**
+    //
+    // 曾经的错误做法：把这段放进上面的 `if (_has_pos && _trust_position)` 块内，
+    // 结果是关闭预积分（陀螺失效后的降级路径）时协方差只减不增 —— 量测更新仍
+    // 在 updatePosition 中继续，而预测步被跳过，协方差单调收缩、增益持续衰减。
+    // 实测第 100→500 步位置增益由 0.326 衰减到 0.030（近 11 倍），滤波器对
+    // 量测几乎失去响应，即所谓「睡着」。这是把两个各自正确的模块（卡尔曼与
+    // IMU 降级开关）组合后才暴露的问题。
+    //
+    // 语义上也应如此：不做位置预测时，我们对位置的把握只会更差，
+    // 不确定度必须随时间增长，而不是因量测更新而收缩。
+    if (_has_pos && _cfg.pos_filter == PosFilterKind::Kalman) {
+        const double q = _cfg.kalman_accel_noise;
+        const double dt2 = dt * dt;
+        const double dt3 = dt2 * dt;
+        const double dt4 = dt2 * dt2;
+        const double q_pp = q * q * dt4 * 0.25;
+        const double q_pv = q * q * dt3 * 0.5;
+        const double q_vv = q * q * dt2;
+        for (auto &cov : _pos_cov) {
+            const double pp = cov.p_pp;
+            const double pv = cov.p_pv;
+            const double vv = cov.p_vv;
+            cov.p_pp = pp + 2.0 * dt * pv + dt2 * vv + q_pp;
+            cov.p_pv = pv + dt * vv + q_pv;
+            cov.p_vv = vv + q_vv;
         }
     }
 }

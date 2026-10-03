@@ -687,6 +687,55 @@ int main() {
                           "卡尔曼增益随量测噪声自适应下降（%.4f → %.4f）", k_small, k_large);
             check(k_large < k_small, buf);
         }
+
+        // ---- 回归：关闭 trust_position 后增益不得衰减（组合缺陷）----
+        // 该缺陷只在「卡尔曼路径」与「IMU 降级开关」组合时出现：
+        // 协方差预测原先嵌在 `if (_has_pos && _trust_position)` 内，而量测更新
+        // 独立执行，于是关闭预积分后协方差只减不增、增益单调衰减。实测第
+        // 100→500 步位置增益由 0.326 掉到 0.030（近 11 倍），滤波器对方位
+        // 量测几乎失去响应。
+        //
+        // 语义上本就不该如此：不做位置预测时，对位置的把握只会更差，
+        // 不确定度必须随时间增长。本断言守住修复，防止将来再被嵌回条件块内。
+        {
+            EstimatorConfig cfg_k;
+            cfg_k.pos_filter = PosFilterKind::Kalman;
+            StateEstimator est_k(cfg_k);
+            est_k.reset();
+
+            // 量测按真实频率（100 Hz = 每 10 个 IMU 步一次）注入。
+            // 若每步都给量测，增益会落到 0.06 附近，偏离实际工况一个量级，
+            // 那样的断言虽然也能守住「不衰减」，但覆盖的是不真实的场景。
+            int step_index = 0;
+            auto stepOnce = [&]() {
+                est_k.updateImu(ImuSample{{0.0, 0.0, -9.81}, {0.0, 0.0, 0.0}}, 0.001);
+                if (step_index % 10 == 0) {
+                    est_k.updatePosition({0.0, 0.0, -5.0}, 0.01);
+                }
+                ++step_index;
+            };
+
+            // 先跑 200 步建立稳态
+            for (int k = 0; k < 200; ++k) {
+                stepOnce();
+            }
+            const double gain_before = est_k.kalmanGainPos()[2];
+
+            // 关闭预积分（模拟陀螺失效后的降级路径），再跑 300 步
+            est_k.setTrustPosition(false);
+            for (int k = 0; k < 300; ++k) {
+                stepOnce();
+            }
+            const double gain_after = est_k.kalmanGainPos()[2];
+
+            std::printf("        关闭 trust_position：位置增益 %.4f → %.4f\n", gain_before,
+                        gain_after);
+            char buf[240];
+            std::snprintf(buf, sizeof(buf),
+                          "关闭 trust_position 后卡尔曼增益不衰减（%.4f → %.4f）", gain_before,
+                          gain_after);
+            check(gain_after > gain_before * 0.8, buf);
+        }
     }
 
     std::printf("\n========================================\n");

@@ -462,3 +462,8 @@ target_link_libraries(LoopKalmanCombinationTest PRIVATE oi3_simulator)
 add_executable(EmergencyLandingTest core/control/EmergencyLandingTest.cpp)
 target_compile_options(EmergencyLandingTest PRIVATE -Wall -Wextra)
 target_link_libraries(EmergencyLandingTest PRIVATE oi3_simulator)
+
+# 故障恢复路径：偏置消失后健康状态能否回到 Healthy
+add_executable(SensorRecoveryTest core/estimation/SensorRecoveryTest.cpp)
+target_compile_options(SensorRecoveryTest PRIVATE -Wall -Wextra)
+target_link_libraries(SensorRecoveryTest PRIVATE oi3_simulator)

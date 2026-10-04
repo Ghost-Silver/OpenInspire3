@@ -467,3 +467,8 @@ target_link_libraries(EmergencyLandingTest PRIVATE oi3_simulator)
 add_executable(SensorRecoveryTest core/estimation/SensorRecoveryTest.cpp)
 target_compile_options(SensorRecoveryTest PRIVATE -Wall -Wextra)
 target_link_libraries(SensorRecoveryTest PRIVATE oi3_simulator)
+
+# 硬故障恢复：掉线后状态能否回到 Healthy（三处缺陷的回归）
+add_executable(HardFaultRecoveryTest core/estimation/HardFaultRecoveryTest.cpp)
+target_compile_options(HardFaultRecoveryTest PRIVATE -Wall -Wextra)
+target_link_libraries(HardFaultRecoveryTest PRIVATE oi3_simulator)

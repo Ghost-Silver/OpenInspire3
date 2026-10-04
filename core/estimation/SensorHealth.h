@@ -116,9 +116,30 @@ struct SensorHealthConfig {
      * 实测静止稳态残差约 0.0041（噪声与常值偏置共同造成，并非零均值）；
      * 若按常见的 0.5σ 取松弛量（0.002），稳态每步净累积 +0.002，
      * 十余步就越过阈值 —— 这正是第一版实现误报的根因。
-     * 故此处不按 σ 缩放，而直接取 0.01：高于稳态、远低于故障水平。
+     *
+     * @par 由 0.01 提高到 0.03 的依据（实测修正）
+     *
+     * 0.01 只高于**稳态**残差，却低于「姿态尚未收敛」时的残差。实测加速度计
+     * 掉线后恢复的场景：掉线期间方向校正失效、姿态漂移，恢复后残差升至
+     * 0.012~0.018 且长时间不回落 —— 高于 0.01，于是 CUSUM 反复报警，
+     * 传感器数据明明已完全正常（模长 9.765 m/s²）却被判为 AccelBias。
+     *
+     * 更糟的是形成**自我维持的死锁**：判为 Degraded 后降级策略会关闭方向校正
+     * （防止偏置污染姿态），而关闭校正又让姿态无法收敛、残差维持高位，
+     * 于是 Degraded 被无限延长。实测恢复后 Degraded 占比达 76.7%。
+     *
+     * 三个水平的实测值：
+     *
+     * | 状态 | 残差 |
+     * |---|---|
+     * | 正常稳态 | 0.003 ~ 0.006 |
+     * | 姿态未收敛（掉线恢复后） | 0.012 ~ 0.018 |
+     * | 真实加速度计偏置 | 0.1426 |
+     *
+     * 取 0.03：高于未收敛水平（0.018），远低于真实偏置（0.1426）。
+     * 对真实偏置的检出不受影响 —— 每帧净累积 0.11，仍会迅速越过阈值 0.05。
      */
-    double cusum_drift = 0.01;
+    double cusum_drift = 0.03;
 
     /**
      * @brief CUSUM 报警阈值
@@ -152,12 +173,35 @@ struct SensorHealthConfig {
     int confirm_steps = 100;
 
     /**
-     * @brief 恢复判据：视为「偏置可能已消失」的方向残差上限
+     * @brief 恢复判据：视为「故障可能已消失」的方向残差上限
      *
-     * 实测健康静止稳态残差约 0.004，偏置故障残差 ≥ 0.10，
-     * 取 0.02（5 倍噪声底）：高于健康稳态、远低于故障水平。
+     * @par 取值依据（由实测修正，原值 0.02 不可用）
+     *
+     * 原注释按**稳态均值**设计阈值：健康静止残差均值约 0.004、偏置故障 ≥0.10，
+     * 故取 0.02（5 倍噪声底）。但恢复判据要求的是「**瞬时残差**连续
+     * `recovery_steps` 帧低于阈值」—— 而瞬时残差存在波动，实测健康状态下
+     * 波动上沿达 0.025，即**原阈值 0.02 落在正常波动带内部**。
+     *
+     * 后果（实测：加速度计掉线后恢复的场景）：
+     *
+     * | 项 | 值 |
+     * |---|---|
+     * | 恢复观察区间总帧数 | 6986 |
+     * | 残差 ≥0.02 的帧数 | 108（1.55%） |
+     * | 残差最大值 | 0.02483 |
+     *
+     * 平均每约 65 帧就有一帧越阈，把连续计数清零。要连续 500 帧不越阈几乎
+     * 不可能，恢复因此被拖长至 6986 帧（约 7 s），远超设计意图的 0.5 s。
+     * 偏置恢复场景耗时正常（499 帧）只是抽样运气 —— 同一机制在掉线场景下
+     * 就暴露了。
+     *
+     * 修正为 0.05：明显高于健康波动上沿（0.025），仍远低于故障水平（≥0.10），
+     * 落在两者之间，判据由此对单帧波动免疫。
+     *
+     * 教训：为「连续 N 帧达标」这类判据选阈值时，必须按**瞬时值的波动上沿**
+     * 选取，而非按稳态均值 —— 后者会让判据嵌在噪声带内，形式上成立、实际不可用。
      */
-    double recovery_residual = 0.02;
+    double recovery_residual = 0.05;
 
     /// 确认恢复所需的连续非机动低残差步数（去抖）。取 500 步（0.5 s）：
     /// 足以避免单个侥幸低点触发解除，又远短于偏置漂移再现的时间尺度。
@@ -215,6 +259,7 @@ class SensorHealth {
         _accel_frozen_count = 0;
         _gyro_frozen_count = 0;
         _accel_bad_count = 0;
+        _accel_ok_count = 0;
         _accel_fault_latched = ImuFault::None;
         _recovery_count = 0;
         _gyro_bad_count = 0;
@@ -314,6 +359,9 @@ class SensorHealth {
                 _accel_fault_latched = accel_fault;
             }
             ++_accel_bad_count;
+            // 注意：这里**不**重置 _accel_ok_count。它由下方独立的新判据管理 ——
+            // 若在此处归零，会与紧随其后的递增互相抵消，每帧结果恒为 1，
+            // 恢复将永远无法完成（这一处正是实测中「健康计数卡在 1」的原因）。
         } else if (_report.maneuvering) {
             // 机动帧：残差不可归因，既不算故障证据、也不算健康证据。
             // 保持计数不动（暂停而非清零）——否则一帧机动就清空已累计的确认计数，
@@ -321,6 +369,28 @@ class SensorHealth {
         } else {
             _accel_bad_count = 0;
             _accel_fault_latched = ImuFault::None;
+        }
+
+        // 硬故障恢复计数：判据是**原始数据是否正常**（模长正常、未冻结），
+        // 而不是「综合异常标志是否为假」。
+        //
+        // 这一点是实测纠出来的。原先用 `!accel_bad_now` 递增，会把 CUSUM 的
+        // **累积报警**也算作「不正常」——而 CUSUM 是锁存判据，报警后必须显式
+        // 清除（由 recovery_count 达标触发）。于是形成死锁：
+        //
+        //   CUSUM 报警 → accel_bad_now 恒真 → 健康计数恒为 0 → 无法从 Failed 恢复
+        //   而 recovery_count 每次达标只清一次 CUSUM，残差略高即重新累积
+        //
+        // 实测：加速度计掉线后第 5000 周期恢复（模长回到 9.765 m/s²），
+        // 健康计数始终为 0，到第 11000 周期仍未解除 Failed。
+        //
+        // 语义上，当前数据正常就够了 —— 历史累积报警是「过去可能出过问题」的
+        // 证据，不该阻止系统确认「现在已恢复」。偏置类故障仍由 recovery_count
+        // 路径负责解除（它需要连续低残差，与这里互补）。
+        if (accel_mag_bad || _accel_frozen_count >= _cfg.frozen_steps) {
+            _accel_ok_count = 0;
+        } else {
+            ++_accel_ok_count;
         }
 
         // ---- 4b. 偏置恢复路径 ----
@@ -371,11 +441,26 @@ class SensorHealth {
                 // 可能是不可归因的机动帧（瞬时类型为 None）。
                 _report.fault = _accel_fault_latched;
             }
-        } else if (_report.accel != SensorStatus::Failed) {
+        } else if (_report.accel != SensorStatus::Failed ||
+                   _accel_ok_count >= _cfg.confirm_steps) {
+            // 判据已消失，可以解除故障。
+            //
+            // 从 Failed 解除需 `_accel_ok_count` 连续正常达标（去抖）；其余状态
+            // 立即解除。曾经的写法是 `else if (_report.accel != Failed)`，即
+            // **完全排除** Failure 的恢复路径 —— 结果一次瞬时断连就把状态永久
+            // 锁在 Failed。实测：加速度计第 2000 周期归零、第 5000 周期恢复
+            // （模长回到 9.765 m/s²），到第 11000 周期仍为 Failed/AccelDead。
+            // 代码注释当时已写明「恢复后允许清除」，实现与注释相悖。
+            //
+            // 真机后果：瞬时断连（接触不良、EMI）会让飞控永久处于降级返航状态，
+            // 传感器完全恢复后也不会回到正常飞行。
             _report.accel = SensorStatus::Healthy;
             if (_report.fault == ImuFault::AccelDead || _report.fault == ImuFault::AccelFrozen) {
-                // 掉线/卡死是硬故障，恢复后允许清除（传感器可能只是瞬时断连）
+                // 掉线/卡死是硬故障，恢复后清除类型（传感器可能只是瞬时断连）
                 _report.fault = ImuFault::None;
+            }
+            if (_accel_ok_count >= _cfg.confirm_steps) {
+                _accel_ok_count = 0;
             }
         }
 
@@ -392,6 +477,7 @@ class SensorHealth {
     }
 
     [[nodiscard]] const SensorHealthReport &report() const { return _report; }
+
 
     /// 残差的噪声水平估计（窗口标准差），供上层诊断
     [[nodiscard]] double residualStdDev() const { return _resid_monitor.stdDev(); }
@@ -434,6 +520,8 @@ class SensorHealth {
     int _accel_frozen_count = 0;
     int _gyro_frozen_count = 0;
     int _accel_bad_count = 0;
+    /// 加速度计连续健康帧计数（用于解除 Failed 的去抖）
+    int _accel_ok_count = 0;
     ImuFault _accel_fault_latched = ImuFault::None;
     int _recovery_count = 0;
     int _gyro_bad_count = 0;

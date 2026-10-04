@@ -524,3 +524,8 @@ target_link_libraries(ActuatorWriteFailureTest PRIVATE oi3_simulator)
 add_executable(TiltLimitCouplingTest core/control/TiltLimitCouplingTest.cpp)
 target_compile_options(TiltLimitCouplingTest PRIVATE -Wall -Wextra)
 target_link_libraries(TiltLimitCouplingTest PRIVATE oi3_simulator)
+
+# 限幅体系一致性（倾角/加速度/推力三道限幅的协调性）
+add_executable(LimitConsistencyTest core/control/LimitConsistencyTest.cpp)
+target_compile_options(LimitConsistencyTest PRIVATE -Wall -Wextra)
+target_link_libraries(LimitConsistencyTest PRIVATE oi3_simulator)

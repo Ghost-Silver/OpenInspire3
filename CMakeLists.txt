@@ -504,3 +504,8 @@ add_executable(ActuatorRealismTest core/control/ActuatorRealismTest.cpp)
 target_include_directories(ActuatorRealismTest PRIVATE core/guidance)
 target_compile_options(ActuatorRealismTest PRIVATE -Wall -Wextra)
 target_link_libraries(ActuatorRealismTest PRIVATE oi3_simulator)
+
+# 卡尔曼 R 取值策略（多传感器下的全局配置）
+add_executable(SensorRMismatchTest core/estimation/SensorRMismatchTest.cpp)
+target_compile_options(SensorRMismatchTest PRIVATE -Wall -Wextra)
+target_link_libraries(SensorRMismatchTest PRIVATE oi3_simulator)

@@ -59,6 +59,36 @@ class GuidanceSetpointSource : public HalSetpointSource {
      *
      * 由 FlightControlLoop 每周期在 applyDegradation 后调用。
      * 模式切换只发生在决策**变化**时，避免重复构建轨迹。
+     *
+     * @par 与 DegradeAction 的完整对应（四个动作全部显式处理）
+     *
+     * | 决策 | 制导模式 | 说明 |
+     * |---|---|---|
+     * | `Normal` | Mission | 恢复正常任务 |
+     * | `Cautious` | **保持当前模式** | 见下方说明 |
+     * | `ReturnHome` | ReturnHome | 生成返航轨迹 |
+     * | `EmergencyLand` | EmergencyLand | 生成垂直下降轨迹 |
+     *
+     * @par 为什么 Cautious 保持当前模式（而非回到 Mission）
+     *
+     * 先说明一个曾存在的实现缺陷：本函数原先只处理三个动作，`Cautious` 因
+     * **不匹配任何分支**而隐式保持了当前模式。行为恰好正确，但语义是隐式的 ——
+     * 枚举新增取值或调整分级时会静默出错（表现为模式与决策不一致，且无任何
+     * 提示）。故改为显式分支，把设计意图写进代码。
+     *
+     * 至于「保持」这一选择本身：`Cautious` 是**轻降级**（传感器有已确认的
+     * 系统性偏差，数据仍可用），由 `ImuDegradePolicy` 在 Degraded 状态下给出。
+     * 它既可能出现在返航途中（故障由 Failed 减轻为 Degraded），也可能出现在
+     * 任务途中。此时有两种选择：
+     *
+     * - **保持当前模式**（本实现）：已开始的安全动作（返航、降落）继续完成，
+     *   不因故障减轻而中断。返航中途突然折返任务点，会让飞机停在半路，
+     *   反而更不安全。
+     * - 回到 Mission：立刻恢复任务，但会打断正在进行的安全动作。
+     *
+     * 取前者，遵循「安全动作一旦开始就执行完」的原则。注意这不影响限幅：
+     * `Cautious` 的倾角/速度限制由 `DegradeExecutor` 施加，与制导模式无关 ——
+     * 即使仍在返航模式下，飞机也是以受限的姿态与速度飞行。
      */
     void onDecisionChanged(const DegradeDecision &d,
                            const std::array<double, 3> &current_pos,
@@ -75,6 +105,9 @@ class GuidanceSetpointSource : public HalSetpointSource {
             _mode = GuidanceMode::Mission;
             _trajectory.reset();
             _landed = false;
+        } else if (d.action == DegradeAction::Cautious) {
+            // 显式保持当前模式。此处不写任何操作，但分支必须存在 ——
+            // 见上方说明：隐式的「不匹配任何分支」在枚举扩展时会静默出错。
         }
     }
 

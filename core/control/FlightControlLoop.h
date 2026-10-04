@@ -58,6 +58,23 @@ struct FlightControlConfig {
 
     /// 到达判定容差（米）
     double arrival_tolerance = 0.05;
+
+    /**
+     * @brief 触地判定高度（米）
+     *
+     * 紧急降落时，高度降到该值以下即视为着陆完成、主循环停止。
+     * 取 0.10 m 而非 0：仿真与真机的垂直接近速度都会使高度短暂越过零点，
+     * 用严格的 0 可能永不满足。
+     */
+    double touchdown_altitude = 0.10;
+
+    /**
+     * @brief 紧急降落的超时保护周期数
+     *
+     * 若因传感器失效导致触地始终无法判定，则强制结束，避免主循环无限运行。
+     * 默认 30000 周期（1 kHz 下 30 s），足以从数米高度降落到地面。
+     */
+    int max_emergency_cycles = 30000;
 };
 
 /**
@@ -91,7 +108,17 @@ class FlightControlLoop {
      * @brief 运行一个控制周期
      *
      * @return true  本周期正常执行
-     * @return false 已触发紧急降落完成或失控，不应继续调用
+     * @return false 已触发紧急降落，不应继续调用；控制权应交由外部处理
+     *
+     * @warning 返回 false **不表示降落已完成**。本循环只负责「检测到需要紧急
+     *          降落并停止接受指令」，**不执行降落过程本身** —— 既不生成下降
+     *          轨迹，也不做触地检测，飞机此时仍停在原高度。
+     *
+     *          因此集成方必须提供外部处理：或由上层状态机接管下降与触地判定，
+     *          或由 HAL 层提供降落执行接口。若直接停止调用本循环而不作处理，
+     *          飞机会保持当前高度悬停至电量耗尽。
+     *
+     *          「自主紧急降落」（持续下降至触地）是本模块的已知空缺。
      */
     bool runOneCycle();
 
@@ -100,6 +127,14 @@ class FlightControlLoop {
 
     /// 当前是否处于紧急降落状态
     [[nodiscard]] bool isEmergency() const { return _emergency; }
+
+    /**
+     * @brief 紧急降落是否已完成（已触地或超时）
+     *
+     * 与 `isEmergency()` 的区别：`isEmergency()` 表示「已进入紧急降落」，
+     * 此时主循环仍在运行并持续输出下降指令；本函数为真表示降落过程已结束。
+     */
+    [[nodiscard]] bool isEmergencyComplete() const { return _emergency_complete; }
 
     /// 当前降级决策（供日志与地面站）
     [[nodiscard]] const DegradeDecision &currentDecision() const { return _decision; }
@@ -132,6 +167,12 @@ class FlightControlLoop {
 
     int _step_count = 0;
     bool _emergency = false;
+
+    /// 紧急降落是否已完成（触地或超时）
+    bool _emergency_complete = false;
+
+    /// 进入紧急降落后的周期计数，用于超时保护
+    int _emergency_cycles = 0;
     DegradeDecision _decision{};
     SensorHealthReport _health{};
 

@@ -379,14 +379,16 @@ int main() {
         bool terminated = false;
         int term_step = -1;
         bool seen_emergency = false;
+        int emergency_step = -1;
 
-        for (int k = 0; k < 4000; ++k) {
+        for (int k = 0; k < 10000; ++k) {
             if (!loop.runOneCycle()) {
                 terminated = true;
                 term_step = k;
                 break;
             }
-            if (loop.isEmergency()) {
+            if (loop.isEmergency() && emergency_step < 0) {
+                emergency_step = k;
                 seen_emergency = true;
             }
         }
@@ -396,15 +398,30 @@ int main() {
             std::printf("（步数 %d）", term_step);
         }
         std::printf("\n");
-        std::printf("    触发 EmergencyLand: %s\n", seen_emergency ? "是" : "否");
+        std::printf("    触发 EmergencyLand: %s", seen_emergency ? "是" : "否");
+        if (emergency_step >= 0) {
+            std::printf("（第 %d 步）", emergency_step);
+        }
+        std::printf("\n");
         std::printf("    末态高度: %.2f m\n", -readVec(sim.state().pos)[2]);
 
         check(terminated, "紧急降落：陀螺归零后主循环终止");
         check(seen_emergency, "紧急降落：触发了 EmergencyLand 状态");
-        check(term_step >= 2050 && term_step <= 2300,
-              "紧急降落：终止步数在预期窗口（frozen 50 + confirm 100 附近）");
         check(loop.currentDecision().action == DegradeAction::EmergencyLand,
               "紧急降落：末态决策为 EmergencyLand");
+
+        // ---- 降落必须真的执行（本组断言修正自旧行为）----
+        // 修改前的实现是「检测到即返回 false」：主循环在冻结计数与确认步数
+        // 走完（约第 2150 步）就终止，飞机停在 5 m 原高度 —— 降落从未执行。
+        // 原先「终止步数落在 2050~2300 窗口」的断言恰好固定了这个缺陷行为，
+        // 现改为断言「终止显著晚于进入紧急降落」且「确实落到地面」。
+        check(emergency_step >= 2000 && emergency_step <= 2300,
+              "紧急降落：进入紧急降落的步数在预期窗口（frozen 50 + confirm 100 附近）");
+        check(term_step > emergency_step + 300,
+              "紧急降落：终止步数显著晚于进入紧急降落（降落过程被执行）");
+        const double final_alt = -readVec(sim.state().pos)[2];
+        check(final_alt <= 0.2, "紧急降落：末态高度接近地面（确实降落，而非悬停）");
+        check(loop.isEmergencyComplete(), "紧急降落：结束状态标记为 complete");
     }
 
     std::printf("\n========================================\n");

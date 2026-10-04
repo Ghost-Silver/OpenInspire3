@@ -452,3 +452,13 @@ add_test(NAME minimum_snap COMMAND MinimumSnapTest)
 add_executable(KalmanFaultCombinationTest core/estimation/KalmanFaultCombinationTest.cpp)
 target_compile_options(KalmanFaultCombinationTest PRIVATE -Wall -Wextra)
 target_link_libraries(KalmanFaultCombinationTest PRIVATE oi3_simulator)
+
+# 组合验证：生产主循环 × 位置滤波器
+add_executable(LoopKalmanCombinationTest core/control/LoopKalmanCombinationTest.cpp)
+target_compile_options(LoopKalmanCombinationTest PRIVATE -Wall -Wextra)
+target_link_libraries(LoopKalmanCombinationTest PRIVATE oi3_simulator)
+
+# 组合验证：紧急降落是否真的执行了下降过程
+add_executable(EmergencyLandingTest core/control/EmergencyLandingTest.cpp)
+target_compile_options(EmergencyLandingTest PRIVATE -Wall -Wextra)
+target_link_libraries(EmergencyLandingTest PRIVATE oi3_simulator)

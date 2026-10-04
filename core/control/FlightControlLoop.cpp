@@ -35,12 +35,20 @@ void FlightControlLoop::init(const std::array<double, 4> &initial_quat) {
     _executor.reset();
     _step_count = 0;
     _emergency = false;
+    _emergency_complete = false;
+    _emergency_cycles = 0;
     _decision = DegradeDecision{};
     _health = SensorHealthReport{};
 }
 
 bool FlightControlLoop::runOneCycle() {
-    if (_emergency) {
+    // 入口守卫：仅在**降落已完成**（触地或超时）时停止。
+    //
+    // 曾经的错误做法是在 `_emergency` 为真时立即返回 false，结果是紧急降落
+    // 只被输出一拍就被切断 —— 实测陀螺失效后主循环于第 2150 周期终止，
+    // 而飞机仍停在 5.000 m 原高度，始终没有下降。制导层生成的降落轨迹、
+    // 执行器准备好的下降推力都无法执行。三个模块各自正确，组合起来降落无人执行。
+    if (_emergency_complete) {
         return false;
     }
 
@@ -81,12 +89,32 @@ bool FlightControlLoop::runOneCycle() {
 
     ++_step_count;
 
-    // ---- 8. 紧急降落判定 ----
-    // 紧急降落时 DegradeExecutor 不再调用内层控制器，直接输出固定推力。
-    // 当飞机触地（高度接近零）或超时后，标记完成。
-    // 此处只做高层状态标记，具体触地检测由 HAL 层提供或在外部处理。
+    // ---- 8. 紧急降落：持续执行下降，直到触地或超时 ----
+    // 进入紧急降落后主循环**继续运行**：DegradeExecutor 不再调用内层控制器，
+    // 而是持续输出低于悬停的固定推力，飞机因此在重力下下降。此处负责判定
+    // 降落何时结束。
+    //
+    // 先前的实现只标记状态、下一周期即返回 false，导致降落从未真正执行
+    // （实测末态高度仍是 5.000 m）。那属于「停止接受指令」与「停止整个循环」
+    // 被混为一谈。现在两者分开：`_emergency` 表示降级状态，`_emergency_complete`
+    // 才表示过程结束。
     if (_decision.action == DegradeAction::EmergencyLand) {
-        _emergency = true;
+        if (!_emergency) {
+            _emergency = true;
+        }
+        ++_emergency_cycles;
+
+        // 触地判定：直接读量测高度（而非估计值）—— 降落是否结束属于物理事实，
+        // 不应依赖此时已不可信的传感器估计。
+        const auto pos = _sensors->readPosition();
+        const double altitude = -static_cast<double>(pos[2]);
+        if (altitude <= _cfg.touchdown_altitude) {
+            _emergency_complete = true;
+        } else if (_emergency_cycles >= _cfg.max_emergency_cycles) {
+            // 超时保护：若因传感器失效导致触地始终无法判定，强制结束，
+            // 避免主循环无限运行。
+            _emergency_complete = true;
+        }
     }
 
     return true;

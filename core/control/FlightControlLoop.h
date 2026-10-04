@@ -75,6 +75,14 @@ struct FlightControlConfig {
      * 等于改动前硬编码的值，故不实现时间戳的 HAL（如 SimSensorReader）
      * 行为逐位不变。
      */
+    /**
+     * @brief 连续多少次「执行器写入未被接受」即判定执行器失联
+     *
+     * 取 10 次（1 kHz 下 10 ms）：单次写入失败可能只是总线抖动，连续失败则
+     * 基本可确认执行器链路异常。
+     */
+    int actuator_fail_steps = 10;
+
     double default_dt = 0.001;
 
     /**
@@ -154,6 +162,18 @@ class FlightControlLoop {
      */
     [[nodiscard]] bool isEmergencyComplete() const { return _emergency_complete; }
 
+    /**
+     * @brief 执行器是否已判定失联
+     *
+     * 连续 `actuator_fail_steps` 次写入未被接受后置位。**注意：这是告知性
+     * 状态，不构成可恢复故障** —— 执行器失联后没有补救手段，该标志用于
+     * 触发外部告警与被动安全措施。
+     */
+    [[nodiscard]] bool isActuatorLost() const { return _actuator_lost; }
+
+    /// 累计写入失败次数（供黑匣子 / 地面站）
+    [[nodiscard]] long long actuatorFailures() const { return _actuator_fail_total; }
+
     /// 当前降级决策（供日志与地面站）
     [[nodiscard]] const DegradeDecision &currentDecision() const { return _decision; }
 
@@ -194,6 +214,15 @@ class FlightControlLoop {
 
     /// 上一次 IMU 时间戳（<=0 表示尚无有效值）
     double _last_imu_timestamp = -1.0;
+
+    /// 连续执行器写入失败计数
+    int _actuator_fail_count = 0;
+
+    /// 累计执行器写入失败次数（供外部诊断）
+    long long _actuator_fail_total = 0;
+
+    /// 执行器是否已判定失联
+    bool _actuator_lost = false;
     DegradeDecision _decision{};
     SensorHealthReport _health{};
 

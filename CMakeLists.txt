@@ -514,3 +514,8 @@ target_link_libraries(SensorRMismatchTest PRIVATE oi3_simulator)
 add_executable(HalFailureTest core/control/HalFailureTest.cpp)
 target_compile_options(HalFailureTest PRIVATE -Wall -Wextra)
 target_link_libraries(HalFailureTest PRIVATE oi3_simulator)
+
+# 执行器写入失败上报通道
+add_executable(ActuatorWriteFailureTest core/control/ActuatorWriteFailureTest.cpp)
+target_compile_options(ActuatorWriteFailureTest PRIVATE -Wall -Wextra)
+target_link_libraries(ActuatorWriteFailureTest PRIVATE oi3_simulator)

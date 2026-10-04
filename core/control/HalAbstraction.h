@@ -128,6 +128,29 @@ class HalActuatorWriter {
 
     /// 输出控制指令。主循环每周期调用一次。
     virtual void writeCommand(const SixDofCommand &cmd) = 0;
+
+    /**
+     * @brief 最近一次 writeCommand() 是否被成功接受
+     *
+     * @par 为什么需要（与读取侧对称）
+     *
+     * 本接口原先返回 void，主循环无从得知指令是否真正送达执行器 —— 真机上
+     * 电调失联、PWM/DShot 输出失败都会静默丢弃指令。实测（指令被置零）：
+     * 飞机自由落体坠地，而**飞控全程判定一切正常**（决策 Normal、传感器
+     * 健康 Healthy），对失控零感知。
+     *
+     * `HalSensorReader::lastImuValid()` 解决的是读取侧同类问题；本方法与之对称。
+     *
+     * @par 约定与局限（重要）
+     *
+     * 默认实现返回 true，既有 HAL 无需改动。返回 false 时主循环会累计失败
+     * 计数并对外暴露，供黑匣子、地面站告警与被动安全措施（如开伞）使用。
+     *
+     * **必须如实说明**：与读取失败不同，写入失败**没有补救手段** —— 没有备用
+     * 执行器，飞机必然失去控制。因此本通道的价值在于「让系统与外部**知道**」
+     * 而非「让系统**救回来**」。把它当作可恢复故障处理是危险的。
+     */
+    [[nodiscard]] virtual bool lastCommandAccepted() const { return true; }
 };
 
 /**

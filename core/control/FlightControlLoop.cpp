@@ -37,6 +37,9 @@ void FlightControlLoop::init(const std::array<double, 4> &initial_quat) {
     _emergency = false;
     _emergency_complete = false;
     _emergency_cycles = 0;
+    _actuator_fail_count = 0;
+    _actuator_fail_total = 0;
+    _actuator_lost = false;
     _decision = DegradeDecision{};
     _health = SensorHealthReport{};
 }
@@ -112,6 +115,22 @@ bool FlightControlLoop::runOneCycle() {
 
     // ---- 7. 输出执行器 ----
     _actuators->writeCommand(cmd);
+
+    // 写入结果检查：HAL 明确报告未被接受时累计并告警。
+    //
+    // 与读取侧不同，写入失败**没有补救手段** —— 没有备用执行器，飞机必然
+    // 失去控制。故此处只做「让系统与外部知道」：置位 actuator_lost 并累计
+    // 计数，供黑匣子、地面站告警与被动安全措施使用。实测（指令被静默置零）
+    // 飞机自由落体坠地，而飞控全程判定 Normal，对失控零感知。
+    if (_actuators->lastCommandAccepted()) {
+        _actuator_fail_count = 0;
+    } else {
+        ++_actuator_fail_count;
+        ++_actuator_fail_total;
+        if (_actuator_fail_count >= _cfg.actuator_fail_steps) {
+            _actuator_lost = true;
+        }
+    }
 
     ++_step_count;
 

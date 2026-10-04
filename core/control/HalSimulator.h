@@ -75,11 +75,13 @@ class SimSensorReader : public HalSensorReader {
      */
     SimSensorReader(SixDofSimulator *sim, ImuModel *imu,
                     const std::array<double, 3> &gravity_ned, int pos_decim = 10,
-                    const PositionImperfection &imperfection = {})
+                    const PositionImperfection &imperfection = {},
+                    bool provide_timestamp = false)
         : _sim(sim), _imu(imu), _gravity_ned(gravity_ned), _pos_decim(pos_decim),
           _step_count(-1), _sigma(imperfection.sigma),
           _delay_samples(std::max(0, imperfection.delay_steps) / std::max(1, pos_decim)),
-          _rng(imperfection.seed), _gauss(0.0, 1.0) {}
+          _rng(imperfection.seed), _gauss(0.0, 1.0),
+          _provide_timestamp(provide_timestamp) {}
 
     [[nodiscard]] ImuSample readImu() override {
         ++_step_count; // 须在 hasPositionUpdate() 之前调用，以匹配 k % decim == 0 语义
@@ -127,12 +129,24 @@ class SimSensorReader : public HalSensorReader {
 
     [[nodiscard]] double time() override { return _sim->time(); }
 
+    /**
+     * @brief IMU 时间戳（仅在 provide_timestamp 为真时可用）
+     *
+     * 默认关闭，故既有调用方走主循环的回退路径、行为逐位不变。开启后主循环
+     * 改用时间戳差分得到步长，可支持任意采样率 —— 这正是真机 HAL 需要实现的
+     * 能力（见 HalSensorReader::imuTimestamp 的说明）。
+     */
+    [[nodiscard]] double imuTimestamp() override {
+        return _provide_timestamp ? _sim->time() : -1.0;
+    }
+
   private:
     SixDofSimulator *_sim;
     ImuModel *_imu;
     std::array<double, 3> _gravity_ned;
     int _pos_decim;
     int _step_count;
+    bool _provide_timestamp;
 
     double _sigma;
     int _delay_samples;

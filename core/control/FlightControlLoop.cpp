@@ -54,7 +54,31 @@ bool FlightControlLoop::runOneCycle() {
 
     // ---- 1. 读传感器 ----
     const ImuSample imu = _sensors->readImu();
-    const double dt = 0.001; // 默认 1 kHz；将来可从时间戳推导
+
+    // 步长由 HAL 提供的 IMU 时间戳差分得到，而非硬编码。
+    //
+    // 原先硬编码 0.001（1 kHz），后果是系统只能在 1 kHz 附近工作：实测以
+    // 仿真步长模拟真机频率时，500 Hz 即失控（末态高度 22.91 m、姿态误差
+    // 峰值 76.15°），250 Hz 及以下坠地。500 Hz 在低成本飞控上很常见，
+    // 该缺口会直接导致真机不可用。
+    //
+    // HAL 不提供时间戳（返回值 <= 0）时回退到 default_dt —— 其默认值等于
+    // 原硬编码值，故既有行为逐位不变。
+    double dt = _cfg.default_dt;
+    {
+        const double ts = _sensors->imuTimestamp();
+        if (ts > 0.0) {
+            if (_last_imu_timestamp > 0.0) {
+                const double measured = ts - _last_imu_timestamp;
+                // 合理性检查：非正、过小（抖动）或过大（跳变/丢帧）一律忽略，
+                // 避免异常时间戳污染积分与滤波器。
+                if (measured >= _cfg.min_dt && measured <= _cfg.max_dt) {
+                    dt = measured;
+                }
+            }
+            _last_imu_timestamp = ts;
+        }
+    }
 
     // ---- 2. 更新估计器（IMU，高频） ----
     _estimator.updateImu(imu, dt);

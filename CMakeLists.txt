@@ -493,3 +493,8 @@ target_link_libraries(LoopSensorQualityTest PRIVATE oi3_simulator)
 add_executable(DeadzoneStabilityTest core/estimation/DeadzoneStabilityTest.cpp)
 target_compile_options(DeadzoneStabilityTest PRIVATE -Wall -Wextra)
 target_link_libraries(DeadzoneStabilityTest PRIVATE oi3_simulator)
+
+# 时间尺度：采样率与步长推导（原硬编码 dt 的修复回归）
+add_executable(TimeScaleTest core/control/TimeScaleTest.cpp)
+target_compile_options(TimeScaleTest PRIVATE -Wall -Wextra)
+target_link_libraries(TimeScaleTest PRIVATE oi3_simulator)

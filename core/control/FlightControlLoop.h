@@ -69,6 +69,24 @@ struct FlightControlConfig {
     double touchdown_altitude = 0.10;
 
     /**
+     * @brief 默认/回退步长（秒）
+     *
+     * 当 HAL 不提供 IMU 时间戳（`imuTimestamp() <= 0`）时使用。默认 0.001
+     * 等于改动前硬编码的值，故不实现时间戳的 HAL（如 SimSensorReader）
+     * 行为逐位不变。
+     */
+    double default_dt = 0.001;
+
+    /**
+     * @brief 时间戳差分得到的 dt 的合理性上界（秒）
+     *
+     * 超出此值的间隔视为异常（时间戳跳变、长时间丢帧），忽略并回退到
+     * `default_dt`。另设下界 `min_dt` 防止时间戳抖动导致 dt 趋零。
+     */
+    double max_dt = 0.05;
+    double min_dt = 1e-6;
+
+    /**
      * @brief 紧急降落的超时保护周期数
      *
      * 若因传感器失效导致触地始终无法判定，则强制结束，避免主循环无限运行。
@@ -173,6 +191,9 @@ class FlightControlLoop {
 
     /// 进入紧急降落后的周期计数，用于超时保护
     int _emergency_cycles = 0;
+
+    /// 上一次 IMU 时间戳（<=0 表示尚无有效值）
+    double _last_imu_timestamp = -1.0;
     DegradeDecision _decision{};
     SensorHealthReport _health{};
 

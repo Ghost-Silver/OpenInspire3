@@ -478,3 +478,8 @@ add_executable(GuidanceModeMappingTest core/guidance/GuidanceModeMappingTest.cpp
 target_include_directories(GuidanceModeMappingTest PRIVATE core/guidance)
 target_compile_options(GuidanceModeMappingTest PRIVATE -Wall -Wextra)
 target_link_libraries(GuidanceModeMappingTest PRIVATE oi3_simulator)
+
+# 机动飞行中的故障检测（含持续机动检测盲区的回归）
+add_executable(ManeuverFaultTest core/estimation/ManeuverFaultTest.cpp)
+target_compile_options(ManeuverFaultTest PRIVATE -Wall -Wextra)
+target_link_libraries(ManeuverFaultTest PRIVATE oi3_simulator)

@@ -93,7 +93,8 @@ struct BwResult {
  */
 BwResult runBandwidth(double wn, bool noise_on, double sensor_delay = 0.0,
                       double seconds = 12.0, double pos_kp = 4.0, double pos_kd = 3.0,
-                      double w_tr = 0.5) {
+                      double w_tr = 0.5,
+                      PosFilterKind filter = PosFilterKind::AlphaBeta) {
     SixDofConfig cfg;
     cfg.base.dt = 0.001;
     cfg.base.mass = 1.0;
@@ -143,6 +144,7 @@ BwResult runBandwidth(double wn, bool noise_on, double sensor_delay = 0.0,
     ImuModel imu(imu_cfg, 20260918u);
 
     EstimatorConfig est_cfg;
+    est_cfg.pos_filter = filter;
     StateEstimator est(est_cfg);
     est.reset();
 
@@ -288,15 +290,22 @@ int main() {
     std::cout << "  " << std::setw(16) << "扫描对象" << std::setw(20) << "跟踪RMS(m)"
               << std::setw(22) << "相对基准改善" << "\n";
 
-    // 基准：默认参数（位置环 √4=2 rad/s，姿态环 9 rad/s）
-    const BwResult base = runBandwidth(9.0, false);
+    // 本段讨论的是「α-β 架构下位置环是否为瓶颈」，故**显式绑定 AlphaBeta**。
+    //
+    // 依据：位置环带宽的边际收益与滤波器类型强相关 —— α-β 的固定增益带相位
+    // 滞后，故提带宽收益显著（实测 3.61 倍）；卡尔曼增益自适应、滞后更小，
+    // 同一扫描的收益降至 1.13 倍。这不是缺陷，而是两种滤波器的固有差异，
+    // 故该结论只在 α-β 语境下成立（2026-10-02 将全局默认切为卡尔曼后调整）。
+    const BwResult base = runBandwidth(9.0, false, 0.0, 12.0, 4.0, 3.0, 0.5,
+                                       PosFilterKind::AlphaBeta);
     std::cout << "  " << std::setw(16) << "基准(位置2/姿态9)" << std::setw(20)
               << std::setprecision(6) << base.track_rms << std::setw(22) << "1.000\n";
 
     // 只提姿态带宽
     double att_best = base.track_rms;
     for (double wn : {25.0, 50.0, 100.0}) {
-        const BwResult r = runBandwidth(wn, false);
+        const BwResult r = runBandwidth(wn, false, 0.0, 12.0, 4.0, 3.0, 0.5,
+                                        PosFilterKind::AlphaBeta);
         att_best = std::min(att_best, r.track_rms);
     }
     std::cout << "  " << std::setw(16) << "只提姿态(→100)" << std::setw(20)
@@ -310,7 +319,8 @@ int main() {
     for (int i = 0; i < 3; ++i) {
         const double kp_i = pos_kps[static_cast<std::size_t>(i)];
         const double wn_i = std::sqrt(kp_i);
-        const BwResult r = runBandwidth(9.0, false, 0.0, 12.0, kp_i, 2.0 * wn_i);
+        const BwResult r = runBandwidth(9.0, false, 0.0, 12.0, kp_i, 2.0 * wn_i, 0.5,
+                                        PosFilterKind::AlphaBeta);
         pos_rms[static_cast<std::size_t>(i)] = r.track_rms;
         pos_best = std::min(pos_best, r.track_rms);
     }

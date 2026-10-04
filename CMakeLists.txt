@@ -529,3 +529,8 @@ target_link_libraries(TiltLimitCouplingTest PRIVATE oi3_simulator)
 add_executable(LimitConsistencyTest core/control/LimitConsistencyTest.cpp)
 target_compile_options(LimitConsistencyTest PRIVATE -Wall -Wextra)
 target_link_libraries(LimitConsistencyTest PRIVATE oi3_simulator)
+
+# 位置滤波器对决（切换默认值的证据基础）
+add_executable(FilterShowdownTest core/estimation/FilterShowdownTest.cpp)
+target_compile_options(FilterShowdownTest PRIVATE -Wall -Wextra)
+target_link_libraries(FilterShowdownTest PRIVATE oi3_simulator)

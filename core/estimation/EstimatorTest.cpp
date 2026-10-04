@@ -480,6 +480,8 @@ int main() {
     double best_rms = 1e9;
     for (int i = 0; i < 7; ++i) {
         EstimatorConfig ec;
+        // 显式绑定 α-β：本段基线应与全局默认值切换解耦
+        ec.pos_filter = PosFilterKind::AlphaBeta;
         ec.accel_correction = kp_grid[i];
         const RunResult r = runClosedLoop(cfg, gains, ec, target, 4.0, true, true, 777u);
         kp_rms[i] = r.steady_pos_rms;
@@ -501,10 +503,13 @@ int main() {
               << std::setw(16) << "稳态倾角(deg)" << std::setw(16) << "位置估计误差"
               << std::setw(16) << "速度估计误差" << "\n";
 
+    // 本段测的是 α-β 滤波器的 α 参数特性，故**显式绑定 AlphaBeta**：
+    // 卡尔曼没有 α 参数，若跟随全局默认值切换，此段的语义将不成立。
     const double a_grid[6] = {0.02, 0.05, 0.1, 0.2, 0.35, 0.5};
     double a_rms[6] = {};
     for (int i = 0; i < 6; ++i) {
         EstimatorConfig ec;
+        ec.pos_filter = PosFilterKind::AlphaBeta;
         ec.pos_filter_alpha = a_grid[i];
         const RunResult r = runClosedLoop(cfg, gains, ec, target, 4.0, true, true, 777u);
         a_rms[i] = r.steady_pos_rms;

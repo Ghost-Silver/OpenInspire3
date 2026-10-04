@@ -498,3 +498,9 @@ target_link_libraries(DeadzoneStabilityTest PRIVATE oi3_simulator)
 add_executable(TimeScaleTest core/control/TimeScaleTest.cpp)
 target_compile_options(TimeScaleTest PRIVATE -Wall -Wextra)
 target_link_libraries(TimeScaleTest PRIVATE oi3_simulator)
+
+# 生产主循环 × 非理想执行器（延迟 / 速率限制 / 推力上限）
+add_executable(ActuatorRealismTest core/control/ActuatorRealismTest.cpp)
+target_include_directories(ActuatorRealismTest PRIVATE core/guidance)
+target_compile_options(ActuatorRealismTest PRIVATE -Wall -Wextra)
+target_link_libraries(ActuatorRealismTest PRIVATE oi3_simulator)

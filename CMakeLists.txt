@@ -483,3 +483,8 @@ target_link_libraries(GuidanceModeMappingTest PRIVATE oi3_simulator)
 add_executable(ManeuverFaultTest core/estimation/ManeuverFaultTest.cpp)
 target_compile_options(ManeuverFaultTest PRIVATE -Wall -Wextra)
 target_link_libraries(ManeuverFaultTest PRIVATE oi3_simulator)
+
+# 生产主循环 × 位置量测质量（滤波器与死区方案对照）
+add_executable(LoopSensorQualityTest core/control/LoopSensorQualityTest.cpp)
+target_compile_options(LoopSensorQualityTest PRIVATE -Wall -Wextra)
+target_link_libraries(LoopSensorQualityTest PRIVATE oi3_simulator)

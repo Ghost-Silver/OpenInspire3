@@ -77,6 +77,44 @@ struct GyroZeroInjector : public HalSensorReader {
     [[nodiscard]] double time() override { return base.time(); }
 };
 
+/**
+ * @brief 陀螺失效 + 位置高度被钉住（模拟高度通道失效）
+ *
+ * 用于验证超时保护：触地判定永远无法满足时，主循环必须依靠超时退出，
+ * 而不是无限运行。
+ */
+struct FaultyHeightReader : public HalSensorReader {
+    SimSensorReader base;
+    int gyro_fault_start;
+    double stuck_altitude;
+    int step_count = 0;
+
+    FaultyHeightReader(SixDofSimulator *sim, ImuModel *imu, const std::array<double, 3> &g,
+                       int decim, int fs, double stuck)
+        : base(sim, imu, g, decim), gyro_fault_start(fs), stuck_altitude(stuck) {}
+
+    [[nodiscard]] ImuSample readImu() override {
+        ImuSample s = base.readImu();
+        if (step_count >= gyro_fault_start) {
+            s.gyro = {0.0, 0.0, 0.0};
+        }
+        ++step_count;
+        return s;
+    }
+    [[nodiscard]] bool hasPositionUpdate() override { return base.hasPositionUpdate(); }
+
+    /// 水平位置保持真实，高度被钉在固定值 —— 触地判定永不可能满足
+    [[nodiscard]] std::array<double, 3> readPosition() override {
+        auto p = base.readPosition();
+        if (step_count >= gyro_fault_start) {
+            p[2] = -stuck_altitude;
+        }
+        return p;
+    }
+
+    [[nodiscard]] double time() override { return base.time(); }
+};
+
 } // namespace
 
 int main() {
@@ -173,6 +211,65 @@ int main() {
     // ---- 4. 状态语义区分 ----
     check(loop.isEmergencyComplete(), "结束状态：isEmergencyComplete 为真");
     check(loop.isEmergency(), "结束状态：isEmergency 仍为真（区别于 complete）");
+
+    // ================================================================
+    // 场景 2：超时保护 —— 触地判定无法满足时必须退出
+    // ================================================================
+    std::printf("\n--- 场景 2：高度通道失效下的超时保护 ---\n");
+    {
+        SixDofConfig cfg2;
+        SixDofState init2{makeVec3(0.0f, 0.0f, -5.0f), makeVec3(0.0f, 0.0f, 0.0f),
+                          Tensor{1.0f, 0.0f, 0.0f, 0.0f}, makeVec3(0.0f, 0.0f, 0.0f)};
+        SixDofSimulator sim2(cfg2, init2);
+
+        ImuConfig icfg2;
+        icfg2.explicit_bias = true;
+        ImuModel imu2(icfg2, 1u);
+        // 位置高度被钉在 50 m：触地判定永远不满足
+        FaultyHeightReader sensors2(&sim2, &imu2, {0.0, 0.0, cfg2.base.gravity}, 10, 2000, 50.0);
+        SimActuatorWriter actuators2(&sim2);
+        SixDofPidController ctrl2(cfg2, {});
+
+        const Tensor mission_target2 = makeVec3(0.0f, 0.0f, -5.0f);
+        const std::array<double, 3> home2 = {0.0, 0.0, -5.0};
+        TrajectoryLimits limits2;
+        GuidanceSetpointSource setpoint2(mission_target2, home2, limits2);
+
+        FlightControlConfig fc2;
+        fc2.estimator.sensor_health.enabled = true;
+        fc2.hover_thrust =
+            static_cast<double>(cfg2.base.mass) * static_cast<double>(cfg2.base.gravity);
+        // 用较小的超时便于观察，同时验证该配置确实被消费
+        fc2.max_emergency_cycles = 3000;
+
+        FlightControlLoop loop2(fc2, &sensors2, &actuators2, &setpoint2, &ctrl2);
+        loop2.init();
+
+        int end2 = -1;
+        int emg2 = -1;
+        for (int k = 0; k < 200000; ++k) {
+            if (!loop2.runOneCycle()) {
+                end2 = k;
+                break;
+            }
+            if (loop2.isEmergency() && emg2 < 0) {
+                emg2 = k;
+            }
+        }
+
+        std::printf("  进入紧急降落: 第 %d 周期\n", emg2);
+        std::printf("  主循环结束:   第 %d 周期（超时上限 %d）\n", end2, fc2.max_emergency_cycles);
+        std::printf("  降落持续:     %d 周期\n", end2 - emg2);
+
+        check(end2 > 0, "超时保护：主循环最终退出（未无限运行）");
+        check(emg2 > 0 && emg2 < end2, "超时保护：确实进入过紧急降落");
+        // 超时上限必须被真正消费：结束点应落在上限附近（不能远超，否则保护无效）
+        const int descent = end2 - emg2;
+        check(descent >= fc2.max_emergency_cycles &&
+                  descent <= fc2.max_emergency_cycles + 50,
+              "超时保护：降落时长与配置上限一致（配置被实际消费）");
+        check(loop2.isEmergencyComplete(), "超时保护：结束状态标记为 complete");
+    }
 
     std::printf("\n========================================\n");
     std::printf("%d / %d checks passed\n", g_pass, g_pass + g_fail);

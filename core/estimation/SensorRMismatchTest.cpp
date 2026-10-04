@@ -10,6 +10,15 @@
  *
  * 本测试量化「全局 R 取值」的代价，并给出可操作的配置规则。
  *
+ * @par 重要更新（倾角限幅修正后）
+ *
+ * 本测试原先记录「R 偏小会发散」。倾角限幅修正（限幅后竖直分量守恒，见
+ * SixDofPidController 的说明）消除了该发散 —— 实测 R=0.02 时由 20.01 m
+ * 改善到 0.79 m，30 倍噪声差异下由 20.01 m 改善到 1.10 m。相关断言已由
+ * 「记录发散」改为「确认有界」。**因此下述「危险方向」的结论在当前实现下
+ * 不再表现为发散，但 R 偏小仍使性能劣化（0.79 m vs 0.25 m），保守取值的
+ * 建议依然成立。**
+ *
  * @par 核心发现：R 的偏差方向严重不对称
  *
  * 真实噪声 σ=0.30 时，改变配置给滤波器的 R：
@@ -160,8 +169,10 @@ int main() {
     std::printf("  R=0.30（1.00×）: %.2f m\n", matched.max_alt_dev);
     std::printf("  R=1.00（3.33×）: %.2f m\n\n", too_large.max_alt_dev);
 
-    check(too_small.diverged || too_small.max_alt_dev > 10.0,
-          "危险方向：R 远小于真实噪声（过度自信）导致发散");
+    // 注：倾角限幅修正（竖直分量守恒）后，该场景不再发散 ——
+    // 实测 20.01 m → 0.79 m。原断言「导致发散」已不成立，改为确认当前的有界性。
+    check(!too_small.diverged && too_small.max_alt_dev < 3.0,
+          "危险方向：R 远小于真实噪声时仍有界（限幅修正后实测 0.79 m）");
     check(!matched.diverged && matched.max_alt_dev < 2.0,
           "基准：R 等于真实噪声时工作正常");
     check(!too_large.diverged && too_large.max_alt_dev < 3.0,
@@ -189,8 +200,9 @@ int main() {
     std::printf("  全局 R=0.30（取大）  ：RTK %.2f m，GPS %.2f m%s\n", rtk_large.max_alt_dev,
                 gps_large.max_alt_dev, gps_large.diverged ? "  [发散]" : "");
 
-    check(gps_small.diverged || gps_small.max_alt_dev > 10.0,
-          "边界：按最小噪声设定 R 会使差传感器发散（即使差异达 30 倍）");
+    // 同上：限幅修正后该场景由 20.01 m 改善到 1.10 m，不再发散。
+    check(!gps_small.diverged && gps_small.max_alt_dev < 3.0,
+          "边界：按最小噪声设定 R 时差传感器仍有界（修正后实测 1.10 m）");
     check(!rtk_large.diverged && rtk_large.max_alt_dev < 1.0,
           "边界：取大 R 时高精度传感器仍正常（30 倍差异下）");
     check(!gps_large.diverged && gps_large.max_alt_dev < 3.0,

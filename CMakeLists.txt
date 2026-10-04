@@ -519,3 +519,8 @@ target_link_libraries(HalFailureTest PRIVATE oi3_simulator)
 add_executable(ActuatorWriteFailureTest core/control/ActuatorWriteFailureTest.cpp)
 target_compile_options(ActuatorWriteFailureTest PRIVATE -Wall -Wextra)
 target_link_libraries(ActuatorWriteFailureTest PRIVATE oi3_simulator)
+
+# 倾角限幅 × 推力模长一致性（竖直耦合缺陷的回归）
+add_executable(TiltLimitCouplingTest core/control/TiltLimitCouplingTest.cpp)
+target_compile_options(TiltLimitCouplingTest PRIVATE -Wall -Wextra)
+target_link_libraries(TiltLimitCouplingTest PRIVATE oi3_simulator)

@@ -198,8 +198,10 @@ int main() {
     // 这不是回归，而是当前真实状态：主循环默认 α-β 且死区关闭。
     // 若将来默认值变更，此处会提示更新，而非悄悄地改变行为。
     std::printf("  默认配置 GPS 级高度偏差 %.2f m\n", std::fabs(ab_gps.final_alt - 5.0));
-    check(std::fabs(ab_gps.final_alt - 5.0) > 10.0,
-          "现状记录：默认配置（α-β、无死区）在 GPS 级噪声下发散（偏差 >10 m）");
+    // 注：倾角限幅修正（竖直分量守恒）后，该场景由 45.56 m 改善到 5.42 m，
+    // 不再发散。原「现状记录：发散」断言已失效，改为确认当前的有界性。
+    check(std::fabs(ab_gps.final_alt - 5.0) < 2.0,
+          "现状更新：默认配置在 GPS 级噪声下已不发散（修正后偏差 <2 m）");
     check(ab_gps.action == "Normal",
           "现状记录：发散时未触发降级（传感器本身健康，属估计器问题）");
 
@@ -213,8 +215,10 @@ int main() {
     // ---- 4. 核心：卡尔曼在两个场景都不劣于 AlphaBeta ----
     check(kf_flow.max_alt_dev <= ab_flow.max_alt_dev * 1.5 + 0.05,
           "核心：光流级下卡尔曼不劣于 AlphaBeta");
-    check(std::fabs(kf_gps.final_alt - 5.0) < std::fabs(ab_gps.final_alt - 5.0) * 0.5,
-          "核心：GPS 级下卡尔曼显著优于 AlphaBeta");
+    // 注：发散消除后两者差距缩小（5.26 vs 5.42 m）。原「显著优于」的断言
+    // 建立在 AlphaBeta 发散的旧行为上，现改为「不劣于」。
+    check(std::fabs(kf_gps.final_alt - 5.0) <= std::fabs(ab_gps.final_alt - 5.0) + 0.5,
+          "核心：GPS 级下卡尔曼不劣于 AlphaBeta（差距随发散消除而缩小）");
 
     // ---- 5. 死区方案的副作用（固化为事实，避免未来被误当作无损方案）----
     std::printf("  死区方案：光流级偏差 %.2f m（AlphaBeta 无死区为 %.2f m）\n",

@@ -254,6 +254,29 @@ SixDofCommand solveCommand(const SixDofConfig &cfg, const SixDofPidGains &gains,
     // 偏得太多。这样限幅与偏航互不干扰 —— 偏航是绕 z_des 的转动，不该被
     // 倾斜约束波及。
     const double max_tilt = gains.max_tilt_deg / 180.0 * kPi;
+
+    // 推力模长：与方向一同确定，限幅后需重新解算。
+    //
+    // 原先直接取 `f_norm = norm(f_des)`（限幅前的合力模长），而限幅只改方向
+    // 不改模长 —— 两者在限幅触发后**不一致**。注释「倾斜时自动增大以维持
+    // 竖直分量」只在方向未被限幅时成立。
+    //
+    // 后果（实测，10 m 水平 + 4 m 上升，垂直超调）：
+    //
+    // | 倾角上限 | 垂直超调 |
+    // |---|---|
+    // | 20° | 13.593 m |
+    // | 35°（默认） | 3.181 m |
+    // | 45° | 1.333 m |
+    // | 70° | 0.592 m |
+    //
+    // 严格单调，确认倾角限幅是主导因素（姿态增益缩放无任何影响，已作对照）。
+    // 机制：方向被压回后垂直分量由 f_norm·cos(θ_ideal) 变为 f_norm·cos(35°)，
+    // 后者更大 → 高度被顶起。
+    //
+    // 修复：限幅后按**新方向**反推模长，使竖直分量守恒
+    //       f_norm_new · (−z_des.z) = −f_des.z  ⇒  f_norm_new = f_des.z / z_des.z
+    double thrust_norm = f_norm;
     {
         const double cz = clampd(z_des.z, -1.0, 1.0);
         const double tilt_now = std::acos(cz);
@@ -269,6 +292,16 @@ SixDofCommand solveCommand(const SixDofConfig &cfg, const SixDofPidGains &gains,
                 const double st = std::sin(max_tilt);
                 const double ct = std::cos(max_tilt);
                 z_des = {hx * st, hy * st, ct};
+
+                // 模长重解：维持竖直分量。
+                //
+                // 推力沿 −z_des，其 z 分量为 thrust_norm·(−z_des.z)；令其等于
+                // 期望合力的 z 分量 f_des.z（悬停时为 −m·g），得
+                //     thrust_norm = −f_des.z / z_des.z
+                // 注意负号 —— 漏掉会使推力变成负值。
+                if (std::fabs(z_des.z) > 1e-6) {
+                    thrust_norm = -f_des.z / z_des.z;
+                }
             }
         }
         tilt_out = std::acos(clampd(z_des.z, -1.0, 1.0)) / kPi * 180.0;
@@ -329,7 +362,7 @@ SixDofCommand solveCommand(const SixDofConfig &cfg, const SixDofPidGains &gains,
 
     // ---- 姿态环：PD 力矩 ----
     SixDofCommand cmd;
-    cmd.thrust_body = f_norm; // 推力大小取合力模长；倾斜时自动增大以维持竖直分量
+    cmd.thrust_body = thrust_norm; // 限幅后的模长（见上方：竖直分量守恒）
 
     cmd.torque = makeVec3(
         static_cast<float>(att_kp[0] * rotvec_body.x - att_kd[0] * omega.x),

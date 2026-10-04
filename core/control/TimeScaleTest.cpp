@@ -169,8 +169,10 @@ int main() {
 
     // ---- 1. 缺陷记录：无时间戳时偏离 1 kHz 即失控 ----
     check(std::fabs(no_ts_1k.final_alt - 5.0) < 0.5, "无时间戳：1 kHz 正常工作（基准）");
-    check(std::fabs(no_ts_500.final_alt - 5.0) > 10.0,
-          "缺陷记录：无时间戳时 500 Hz 失控（高度偏差 >10 m）");
+    // 注：倾角限幅修正（竖直分量守恒）后，无时间戳的 500 Hz 由 22.91 m
+    // 改善到 4.75 m，不再失控。原「缺陷记录」断言已失效。
+    check(std::fabs(no_ts_500.final_alt - 5.0) < 8.0,
+          "边界记录：无时间戳时 500 Hz 明显变差但已有界（修正后 4.75 m）");
     check(no_ts_500.max_att_err > 30.0,
           "缺陷记录：无时间戳时 500 Hz 姿态误差极大（>30°）");
     check(std::fabs(no_ts_250.final_alt - 5.0) > 4.0,
@@ -198,8 +200,9 @@ int main() {
                 std::fabs(ts_125.final_alt - 5.0), ts_125.max_att_err);
     check(ts_125.max_att_err < 10.0,
           "归因：125 Hz 下姿态误差仍正常（说明积分正确，非时间尺度问题）");
-    check(std::fabs(ts_125.final_alt - 5.0) > 10.0,
-          "归因：125 Hz 仍发散，属位置环低采样率带宽不足（独立问题，已标注）");
+    // 同上：125 Hz 修正后不再发散，原「标注为独立问题」的断言失效。
+    check(std::fabs(ts_125.final_alt - 5.0) < 8.0,
+          "归因：125 Hz 在限幅修正后亦不再发散（低采样率裕度改善）");
 
     std::printf("\n========================================\n");
     std::printf("%d / %d checks passed\n", g_pass, g_pass + g_fail);

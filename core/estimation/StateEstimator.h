@@ -245,7 +245,12 @@ public:
      * @param imu IMU 测量
      * @param dt  采样间隔（秒）
      */
-    void updateImu(const ImuSample &imu, double dt);
+    /**
+     * @param imu_read_ok HAL 是否成功读到本次 IMU 数据（默认 true）。
+     *        为 false 时数据不可信，健康检测走外部失败路径
+     *        （见 SensorHealthConfig::external_fail_steps）。
+     */
+    void updateImu(const ImuSample &imu, double dt, bool imu_read_ok = true);
 
     /**
      * @brief 位置测量更新（低频，例如 100 Hz）

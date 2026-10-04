@@ -119,7 +119,7 @@ void StateEstimator::setAttitude(const std::array<double, 4> &quat) {
     normalize(_quat);
 }
 
-void StateEstimator::updateImu(const ImuSample &imu, double dt) {
+void StateEstimator::updateImu(const ImuSample &imu, double dt, bool imu_read_ok) {
     if (dt <= 0.0) {
         return;
     }
@@ -159,7 +159,7 @@ void StateEstimator::updateImu(const ImuSample &imu, double dt) {
         // 与是否将它反馈进姿态积分完全独立。
         if (_cfg.sensor_health.enabled) {
             const double resid = std::sqrt(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
-            _health.update(imu.accel, imu.gyro, resid);
+            _health.update(imu.accel, imu.gyro, resid, imu_read_ok);
         }
 
         // 加速度计方向校正。降级策略可关闭它——失效数据会让这里把错误的
@@ -193,7 +193,7 @@ void StateEstimator::updateImu(const ImuSample &imu, double dt) {
     // 这一处，导致加速度计归零被完全漏报（测试第 2 节捕获）。
     // 掉线由 accel_mag_min 判据命中，不依赖残差，故 resid=0 不影响判定。
     if (_cfg.sensor_health.enabled && an <= 1e-6) {
-        _health.update(imu.accel, imu.gyro, 0.0);
+        _health.update(imu.accel, imu.gyro, 0.0, imu_read_ok);
     }
 
     _omega = w;

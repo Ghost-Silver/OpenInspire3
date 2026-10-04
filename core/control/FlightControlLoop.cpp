@@ -81,7 +81,9 @@ bool FlightControlLoop::runOneCycle() {
     }
 
     // ---- 2. 更新估计器（IMU，高频） ----
-    _estimator.updateImu(imu, dt);
+    // 一并传入 HAL 的读取有效标志：HAL 明确报告失败时，该帧数据不可信，
+    // 健康检测走外部失败路径（而非从数据特征去猜）。
+    _estimator.updateImu(imu, dt, _sensors->lastImuValid());
 
     // ---- 3. 位置测量（低频，由 HAL 决定时机） ----
     if (_sensors->hasPositionUpdate()) {

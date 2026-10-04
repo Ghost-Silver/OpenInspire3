@@ -211,6 +211,30 @@ struct SensorHealthConfig {
     /// 完全不变只可能是数字通路卡死。
     int frozen_steps = 50;
 
+    /**
+     * @brief 连续多少帧「HAL 读取失败」即判定传感器失效
+     *
+     * @par 为什么需要外部失败信号
+     *
+     * 本模块的检测量全部来自**数据特征**（模长、是否变化、残差）。因此存在一个
+     * 无法覆盖的盲区：**数据看起来合理但完全错误**。典型情形是 HAL 读取失败后
+     * 返回随机值 —— 模长接近正常（不触发掉线）、每帧都在变（不触发卡死）、
+     * 而姿态估计被它污染后残差反而自洽（不触发 CUSUM）。
+     *
+     * 实测（持续返回随机垃圾，模长约 9.8）：姿态误差由 1.45° 一路涨到 180°，
+     * 而**传感器健康状态全程保持 Healthy**，最终坠机。检测并非不及时
+     * （其余三类失败均在第 199 帧检出），而是**根本判不出来**。
+     *
+     * 关键区别：HAL 自己**知道**读取失败（I2C 超时、总线错误），却无法上报。
+     * 这类信息应当直接传递，而不是让估计器从数据里去猜。
+     *
+     * @par 取值
+     *
+     * 取 10 帧（1 kHz 下 10 ms）：单帧失败属正常抖动（用预测外推即可），
+     * 连续 10 帧失败则基本可确认链路异常。
+     */
+    int external_fail_steps = 10;
+
     /// 残差统计量窗口长度
     int residual_window = 200;
 
@@ -276,6 +300,9 @@ struct SensorHealthReport {
     /// 当前是否处于机动（影响各故障的可检测性，调用方须据此解读结果）
     bool maneuvering = false;
 
+    /// 连续读取失败计数（来自 HAL 的外部信号，非数据特征推断）
+    int external_read_failures = 0;
+
     /// 当前加速度计模长（m/s²）
     double accel_magnitude = 0.0;
 
@@ -316,6 +343,7 @@ class SensorHealth {
         _gyro_frozen_count = 0;
         _accel_bad_count = 0;
         _accel_ok_count = 0;
+        _external_fail_count = 0;
         _accel_fault_latched = ImuFault::None;
         _recovery_count = 0;
         _gyro_bad_count = 0;
@@ -336,10 +364,33 @@ class SensorHealth {
      * @note residual 必须由调用方从**当前姿态估计**算出。它是本模块最主要的
      *       检测量，算错（例如用了未归一化的向量）会让整条检测链失效。
      */
+    /**
+     * @param imu_read_ok HAL 是否成功读到了本次 IMU 数据。
+     *        默认 true，故既有调用方行为不变。当 HAL 明确报告读取失败时，
+     *        数据不可信（可能是缓存值或随机值），应走外部失败路径而非数据检测。
+     */
     void update(const std::array<double, 3> &accel, const std::array<double, 3> &gyro,
-                double residual) {
+                double residual, bool imu_read_ok = true) {
         if (!_cfg.enabled) {
             return;
+        }
+
+        // ---- 0. 外部失败信号（优先级最高）----
+        // HAL 明确报告读取失败时，数据不可信 —— 此时任何数据特征检测都无意义
+        // （失败返回值可能恰好"看起来合理"）。直接按外部信号计数，
+        // 连续超过 external_fail_steps 即判定失效。
+        if (!imu_read_ok) {
+            ++_external_fail_count;
+            if (_external_fail_count >= _cfg.external_fail_steps) {
+                _report.samples = ++_samples;
+                _report.accel = SensorStatus::Failed;
+                _report.gyro = SensorStatus::Failed;
+                _report.fault = ImuFault::AccelDead;
+                _report.external_read_failures = _external_fail_count;
+                return;
+            }
+        } else {
+            _external_fail_count = 0;
         }
 
         ++_samples;
@@ -588,6 +639,8 @@ class SensorHealth {
     int _accel_frozen_count = 0;
     int _gyro_frozen_count = 0;
     int _accel_bad_count = 0;
+    /// 连续外部读取失败计数
+    int _external_fail_count = 0;
     /// 加速度计连续健康帧计数（用于解除 Failed 的去抖）
     int _accel_ok_count = 0;
     ImuFault _accel_fault_latched = ImuFault::None;

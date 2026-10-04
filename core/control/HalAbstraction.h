@@ -61,6 +61,30 @@ class HalSensorReader {
     [[nodiscard]] virtual double time() = 0;
 
     /**
+     * @brief 最近一次 readImu() 是否成功
+     *
+     * @par 为什么需要
+     *
+     * 本接口原先没有失败语义：`readImu()` 返回 `ImuSample` 值类型，HAL 即便
+     * 遇到 I2C 超时/总线错误也无法上报，只能返回某个值。而估计器的健康检测
+     * 全部基于**数据特征**，对「数据看起来合理但完全错误」无能为力。
+     *
+     * 实测（持续返回随机值、模长接近正常）：姿态误差由 1.45° 涨到 180°，
+     * 健康状态却**全程保持 Healthy**，最终坠机 —— 检测并非不及时，而是根本
+     * 判不出来（模长正常、每帧在变、残差因姿态被污染而自洽）。
+     *
+     * 而 HAL 本身**知道**读取失败。这类信息应当直接传递，不该让估计器从数据
+     * 里去猜。
+     *
+     * @par 约定
+     *
+     * 默认实现返回 true，故既有 HAL（如 `SimSensorReader`）无需改动。
+     * 返回 false 时主循环会把该帧标记为不可信，健康检测按连续失败计数处理
+     * （阈值见 `SensorHealthConfig::external_fail_steps`）。
+     */
+    [[nodiscard]] virtual bool lastImuValid() const { return true; }
+
+    /**
      * @brief 最近一次 readImu() 对应的时间戳（秒）
      *
      * 主循环用它**差分得到真实的采样间隔 dt**，而不是依赖硬编码步长。

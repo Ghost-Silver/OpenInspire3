@@ -509,3 +509,8 @@ target_link_libraries(ActuatorRealismTest PRIVATE oi3_simulator)
 add_executable(SensorRMismatchTest core/estimation/SensorRMismatchTest.cpp)
 target_compile_options(SensorRMismatchTest PRIVATE -Wall -Wextra)
 target_link_libraries(SensorRMismatchTest PRIVATE oi3_simulator)
+
+# HAL 失败上报通道（修复「数据合理但完全错误」的检测盲区）
+add_executable(HalFailureTest core/control/HalFailureTest.cpp)
+target_compile_options(HalFailureTest PRIVATE -Wall -Wextra)
+target_link_libraries(HalFailureTest PRIVATE oi3_simulator)

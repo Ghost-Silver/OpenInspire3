@@ -488,3 +488,8 @@ target_link_libraries(ManeuverFaultTest PRIVATE oi3_simulator)
 add_executable(LoopSensorQualityTest core/control/LoopSensorQualityTest.cpp)
 target_compile_options(LoopSensorQualityTest PRIVATE -Wall -Wextra)
 target_link_libraries(LoopSensorQualityTest PRIVATE oi3_simulator)
+
+# 位置残差死区的稳定性边界（非单调、存在发散区）
+add_executable(DeadzoneStabilityTest core/estimation/DeadzoneStabilityTest.cpp)
+target_compile_options(DeadzoneStabilityTest PRIVATE -Wall -Wextra)
+target_link_libraries(DeadzoneStabilityTest PRIVATE oi3_simulator)

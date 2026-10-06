@@ -27,6 +27,7 @@
 #include "TensorUtils.h"
 
 #include "AutoGrad.h"
+#include "C3/C3Cleanup.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -595,5 +596,6 @@ int main() {
         std::cout << g_failed << " FAILED\n";
     }
     std::cout << "========================================\n";
+    ct::c3::shutdownAll();
     return g_failed == 0 ? 0 : 1;
 }

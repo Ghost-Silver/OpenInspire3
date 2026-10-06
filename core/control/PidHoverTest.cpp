@@ -11,6 +11,7 @@
 #include "ClosedLoop.h"
 #include "PidController.h"
 #include "TensorUtils.h"
+#include "C3/C3Cleanup.h"
 
 #include <iostream>
 
@@ -49,5 +50,6 @@ int main() {
     printTrace(trace, 10);
 
     std::cout << "\n结果: " << (metrics.converged ? "收敛" : "未收敛") << "\n";
+    ct::c3::shutdownAll();
     return metrics.converged ? 0 : 1;
 }

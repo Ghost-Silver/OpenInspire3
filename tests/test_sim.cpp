@@ -19,6 +19,7 @@
 #include "core/simulator/PhysicsEngine/DroneSimulator.h"
 #include "core/simulator/PhysicsEngine/RK4Solver.h"
 #include "core/simulator/PhysicsEngine/TensorUtils.h"
+#include "C3/C3Cleanup.h"
 
 #include <cmath>
 #include <iostream>
@@ -223,6 +224,6 @@ int main() {
         std::cout << g_failures << " FAILED\n";
     }
     std::cout << "========================================\n";
-
+    ct::c3::shutdownAll();
     return g_failures == 0 ? 0 : 1;
 }

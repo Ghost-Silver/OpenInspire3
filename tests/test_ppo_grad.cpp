@@ -33,6 +33,7 @@
 
 #include "AutoGrad.h"
 #include "PPOAgent.h"
+#include "C3/C3Cleanup.h"
 
 #include <cmath>
 #include <cstddef>
@@ -354,5 +355,6 @@ int main() {
         std::cout << g_failures << " FAILED\n";
     }
     std::cout << "================================================\n";
+    ct::c3::shutdownAll();
     return g_failures == 0 ? 0 : 1;
 }

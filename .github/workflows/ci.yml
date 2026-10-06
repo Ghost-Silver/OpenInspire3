@@ -2,9 +2,9 @@ name: OpenInspire3 CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, develop ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, develop ]
   workflow_dispatch:
 
 jobs:
@@ -21,42 +21,49 @@ jobs:
             compiler: apple-clang
 
     steps:
-      - name: Configure Git for SSH to HTTPS rewrite
-        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          fetch-depth: 0
+
+      - name: Checkout Submodules (HTTPS Rewrite)
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install modern CMake & Ninja
+        run: |
+          pip install --upgrade pip cmake ninja
 
       - name: Install Linux Dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build g++-13 gcc-13 libomp-dev
+          sudo apt-get install -y gcc-13 g++-13 libomp-dev
           echo "CC=gcc-13" >> $GITHUB_ENV
           echo "CXX=g++-13" >> $GITHUB_ENV
 
       - name: Install macOS Dependencies
         if: runner.os == 'macOS'
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: 1
         run: |
-          brew install cmake ninja
+          brew install libomp || true
+          echo "OPENMP_ROOT=$(brew --prefix libomp)" >> $GITHUB_ENV
 
       - name: Configure CMake
         run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release -G Ninja
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build Targets
+      - name: Build OpenInspire3 Targets
         run: |
-          cmake --build build --target oi3_simulator DroneSimulation test_sim
-          cmake --build build --target PidHoverTest SixDofHoverTest SixDofGradTest test_ppo_grad MinimumSnapTest
+          cmake --build build --target oi3_simulator DroneSimulation test_sim PidHoverTest SixDofHoverTest SixDofGradTest test_ppo_grad MinimumSnapTest
 
-      - name: Verify test_sim
-        run: |
-          ./build/test_sim
-
-      - name: Run CTest
+      - name: Run CTest Regression Suite
         run: |
           ctest --test-dir build --output-on-failure

@@ -83,8 +83,7 @@ jobs:
         run: |
           cmake --build build --target oi3_simulator DroneSimulation test_sim PidHoverTest SixDofHoverTest SixDofGradTest test_ppo_grad MinimumSnapTest \
             || {
-              echo "::error title=OI3 Build Failure::Build failed, running verbose build:"
-              ninja -C build -v -j 1 || true
+              ninja -C build -v -j 1 oi3_simulator DroneSimulation test_sim PidHoverTest SixDofHoverTest SixDofGradTest test_ppo_grad MinimumSnapTest || true
               exit 1
             }
 

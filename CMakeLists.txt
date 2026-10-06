@@ -3,6 +3,7 @@ project(OpenInspire3 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_ENABLE_EXPORTS ON)
 
 # 默认 Release：CTorch 的性能依赖其自身的 LTO / -O3 配置，Debug 会显著拖慢仿真。
 # 需要断点调试时显式传 -DCMAKE_BUILD_TYPE=Debug。

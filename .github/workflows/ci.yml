@@ -1,0 +1,62 @@
+name: OpenInspire3 CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            compiler: gcc-13
+          - os: macos-14
+            compiler: apple-clang
+
+    steps:
+      - name: Configure Git for SSH to HTTPS rewrite
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++-13 gcc-13 libomp-dev
+          echo "CC=gcc-13" >> $GITHUB_ENV
+          echo "CXX=g++-13" >> $GITHUB_ENV
+
+      - name: Install macOS Dependencies
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+        run: |
+          brew install cmake ninja
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -G Ninja
+
+      - name: Build Targets
+        run: |
+          cmake --build build --target oi3_simulator DroneSimulation test_sim
+          cmake --build build --target PidHoverTest SixDofHoverTest SixDofGradTest test_ppo_grad MinimumSnapTest
+
+      - name: Verify test_sim
+        run: |
+          ./build/test_sim
+
+      - name: Run CTest
+        run: |
+          ctest --test-dir build --output-on-failure

@@ -15,6 +15,12 @@ endif()
 # 构建时只指定本项目目标即可，CMake 不会连带构建它们。
 set(TEST_ENABLED OFF CACHE BOOL "" FORCE)
 set(FETCH_GOOGLETEST OFF CACHE BOOL "" FORCE)
+set(CT_ENABLE_MLIR OFF CACHE BOOL "" FORCE)
+if(NOT APPLE)
+    set(CT_ENABLE_LTO OFF CACHE BOOL "" FORCE)
+endif()
+
+list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # CTorch 子模块
 add_subdirectory(core/CTorch)

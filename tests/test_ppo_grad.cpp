@@ -318,9 +318,11 @@ void testPolicyPrefersRewardedAction() {
     for (int round = 0; round < 8; ++round) {
         auto [action, log_prob, value] = agent.select_action(obs);
         (void)action;
+        (void)log_prob;
+        const float target_log_prob = static_cast<float>(std::log(std::max(1e-7, logProbOf(target_action))));
         // 人为固定在 target_action 上构造正优势
         agent.store_experience(
-            makeExperience(obs, target_action, log_prob, value, 1.0f, 0.0f));
+            makeExperience(obs, target_action, target_log_prob, value, 1.0f, 0.0f));
         agent.update();
     }
 

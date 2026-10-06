@@ -41,24 +41,43 @@ jobs:
         run: |
           pip install --upgrade pip cmake ninja
 
-      - name: Install Linux Dependencies
+      - name: Install Linux Dependencies (LLVM/MLIR & GCC-13)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-13 g++-13 libomp-dev
+          sudo apt-get install -y gcc-13 g++-13 libomp-dev llvm-18-dev libmlir-18-dev mlir-18-tools
           echo "CC=gcc-13" >> $GITHUB_ENV
           echo "CXX=g++-13" >> $GITHUB_ENV
+          echo "LLVM_DIR=/usr/lib/llvm-18/lib/cmake/llvm" >> $GITHUB_ENV
+          echo "MLIR_DIR=/usr/lib/llvm-18/lib/cmake/mlir" >> $GITHUB_ENV
+
+      - name: Cache Homebrew LLVM
+        if: runner.os == 'macOS'
+        id: cache-homebrew-llvm
+        uses: actions/cache@v4
+        with:
+          path: |
+            /opt/homebrew/opt/llvm
+            /opt/homebrew/Cellar/llvm
+          key: ${{ runner.os }}-homebrew-llvm-v18
 
       - name: Install macOS Dependencies
         if: runner.os == 'macOS'
         run: |
           brew install libomp || true
           echo "OPENMP_ROOT=$(brew --prefix libomp)" >> $GITHUB_ENV
+          if [ ! -d "/opt/homebrew/opt/llvm" ]; then
+            brew install llvm
+          fi
+          echo "LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm" >> $GITHUB_ENV
+          echo "MLIR_DIR=$(brew --prefix llvm)/lib/cmake/mlir" >> $GITHUB_ENV
+          echo "$(brew --prefix llvm)/bin" >> $GITHUB_PATH
 
       - name: Configure CMake
         run: |
           cmake -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOI3_ENABLE_C3=ON
 
       - name: Build OpenInspire3 Targets
         run: |

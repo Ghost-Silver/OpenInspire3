@@ -1,0 +1,100 @@
+name: Auto Sync CTorch & Validate CI
+
+on:
+  repository_dispatch:
+    types: [ctorch_updated]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  sync-submodule-and-test:
+    name: Sync CTorch & Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout OpenInspire3
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          submodules: false
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      - name: Update CTorch Submodule
+        id: sync_step
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+          
+          cd core/CTorch
+          git fetch origin feature-DCU
+          
+          # 优先使用 webhook 传过来的 sha，若无则使用 origin/feature-DCU 最新 HEAD
+          PAYLOAD_SHA="${{ github.event.client_payload.sha }}"
+          if [ -n "$PAYLOAD_SHA" ]; then
+            TARGET_SHA="$PAYLOAD_SHA"
+            echo "Using target SHA from dispatch payload: $TARGET_SHA"
+          else
+            TARGET_SHA=$(git rev-parse origin/feature-DCU)
+            echo "Using target SHA from origin/feature-DCU: $TARGET_SHA"
+          fi
+          
+          LOCAL_SHA=$(git rev-parse HEAD)
+          echo "Current local CTorch SHA: $LOCAL_SHA"
+          echo "Target CTorch SHA:        $TARGET_SHA"
+          
+          if [ "$LOCAL_SHA" = "$TARGET_SHA" ]; then
+            echo "CTorch submodule is already up-to-date ($LOCAL_SHA)."
+            echo "has_update=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          git checkout "$TARGET_SHA"
+          git submodule update --init --recursive
+          cd ../..
+          
+          git add core/CTorch
+          echo "has_update=true" >> $GITHUB_OUTPUT
+          echo "target_sha=$TARGET_SHA" >> $GITHUB_OUTPUT
+
+      - name: Install Linux Dependencies (LLVM/MLIR & GCC-13)
+        if: steps.sync_step.outputs.has_update == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-13 g++-13 cmake ninja-build libomp-dev llvm-18-dev libmlir-18-dev mlir-18-tools zlib1g-dev libzstd-dev libopenblas-dev
+          echo "CC=gcc-13" >> $GITHUB_ENV
+          echo "CXX=g++-13" >> $GITHUB_ENV
+          echo "/usr/lib/llvm-18/bin" >> $GITHUB_PATH
+          echo "LLVM_DIR=/usr/lib/llvm-18/lib/cmake/llvm" >> $GITHUB_ENV
+          echo "MLIR_DIR=/usr/lib/llvm-18/lib/cmake/mlir" >> $GITHUB_ENV
+
+      - name: Configure CMake
+        if: steps.sync_step.outputs.has_update == 'true'
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOI3_ENABLE_C3=ON
+
+      - name: Build OpenInspire3 Targets
+        if: steps.sync_step.outputs.has_update == 'true'
+        run: |
+          cmake --build build --target oi3_simulator DroneSimulation test_sim PidHoverTest SixDofHoverTest SixDofGradTest test_ppo_grad MinimumSnapTest
+
+      - name: Run CTest Regression Suite
+        if: steps.sync_step.outputs.has_update == 'true'
+        run: |
+          ctest -j 1 --test-dir build --output-on-failure
+
+      - name: Commit & Push Submodule Update
+        if: steps.sync_step.outputs.has_update == 'true'
+        run: |
+          TARGET_SHA="${{ steps.sync_step.outputs.target_sha }}"
+          git commit -m "chore(submodule): auto-sync CTorch to $TARGET_SHA (CD validated)"
+          git push origin main
